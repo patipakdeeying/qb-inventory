@@ -239,6 +239,153 @@ RegisterNetEvent('qb-inventory:server:useItem', function(item)
     end
 end)
 
+RegisterNetEvent('qb-inventory:server:DoItemRemoval', function(itemSlot, itemName, amountToRemove)
+    local src = source
+    local QBPlayer = QBCore.Functions.GetPlayer(src) -- Use a different name like QBPlayer for the local object
+
+    if not QBPlayer or not QBPlayer.PlayerData or not QBPlayer.PlayerData.source then
+        print('[qb-inventory] DoItemRemoval: Could not get valid QBPlayer object for source ' .. src)
+        return
+    end
+
+    local playerServerId = QBPlayer.PlayerData.source -- This is the ID to use with the global Player() state accessor
+    local itemInSlot = GetItemBySlot(playerServerId, itemSlot) -- GetItemBySlot is in functions.lua
+
+    if not itemInSlot or itemInSlot.name:lower() ~= itemName:lower() or itemInSlot.amount < amountToRemove then
+        TriggerClientEvent('QBCore:Notify', playerServerId, "Error removing item. Details mismatch or insufficient amount.", "error")
+        print('[qb-inventory] DoItemRemoval: Item validation failed for player ' .. playerServerId .. ' - Slot: ' .. itemSlot .. ' Name: ' .. itemName .. ' Amount: ' .. amountToRemove .. ' Found: ' .. (itemInSlot and json.encode(itemInSlot) or 'nil'))
+        return
+    end
+
+    if RemoveItem(playerServerId, itemName, amountToRemove, itemSlot, "removed_via_menu") then -- RemoveItem is in functions.lua
+        local itemInfo = QBCore.Shared.Items[itemName:lower()]
+        if itemInfo then
+            TriggerClientEvent('qb-inventory:client:ItemBox', playerServerId, itemInfo, 'remove', amountToRemove)
+        end
+        TriggerClientEvent('QBCore:Notify', playerServerId, "Removed " .. amountToRemove .. "x " .. (itemInfo and itemInfo.label or itemName), "success")
+
+        -- Correctly using the GLOBAL Player(sourceId) state accessor function
+        if Player(playerServerId).state and Player(playerServerId).state.inv_busy then
+            TriggerClientEvent('qb-inventory:client:updateInventory', playerServerId)
+            print("[qb-inventory] DoItemRemoval: Sent updateInventory event for player " .. playerServerId .. " because inv_busy was true.")
+        elseif Player(playerServerId).state == nil then
+            print("[qb-inventory] DoItemRemoval: Player(" .. playerServerId .. ").state was nil. Cannot check inv_busy for UI update.")
+        else
+            -- This means Player(playerServerId).state exists, but inv_busy is false or nil
+            print("[qb-inventory] DoItemRemoval: Player(" .. playerServerId .. ").state.inv_busy was false or nil. No inventory update event sent.")
+        end
+    else
+        TriggerClientEvent('QBCore:Notify', playerServerId, "Failed to remove " .. (itemInfo and itemInfo.label or itemName) .. ".", "error")
+    end
+end)
+
+RegisterNetEvent('qb-inventory:server:DoGiveItemToPlayerId', function(itemSlot, itemName, itemInfoParam, amountToGive, targetPlayerServerId)
+    local src = source
+    local SourcePlayer = QBCore.Functions.GetPlayer(src)
+
+    -- Initial checks for source player
+    if not SourcePlayer or SourcePlayer.PlayerData.metadata['isdead'] or SourcePlayer.PlayerData.metadata['inlaststand'] or SourcePlayer.PlayerData.metadata['ishandcuffed'] then
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.cannot_give_now'), 'error')
+        return
+    end
+
+    local TargetPlayer = QBCore.Functions.GetPlayer(tonumber(targetPlayerServerId))
+    if not TargetPlayer then
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.target_not_online'), 'error')
+        return
+    end
+
+    if TargetPlayer.PlayerData.source == src then
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.cannot_give_self'), 'error')
+        return
+    end
+
+    -- Checks for target player
+    if TargetPlayer.PlayerData.metadata['isdead'] or TargetPlayer.PlayerData.metadata['inlaststand'] or TargetPlayer.PlayerData.metadata['ishandcuffed'] then
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.target_cannot_receive'), 'error')
+        return
+    end
+
+    -- Distance Check
+    local sourcePed = GetPlayerPed(src)
+    local targetPed = GetPlayerPed(TargetPlayer.PlayerData.source)
+    local distance = #(GetEntityCoords(sourcePed) - GetEntityCoords(targetPed))
+    if distance > 5.0 then -- Configurable distance
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.too_far_to_give'), 'error')
+        return
+    end
+
+    -- Validate source item and amount
+    local sourceItem = SourcePlayer.Functions.GetItemBySlot(itemSlot) -- Use player function
+    if not sourceItem or sourceItem.name:lower() ~= itemName:lower() or sourceItem.amount < amountToGive then
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.you_dont_have_enough'), 'error')
+        return
+    end
+    
+    local actualItemInfoToGive = sourceItem.info or itemInfoParam or {}
+    local sharedItemData = QBCore.Shared.Items[itemName:lower()] -- For notifications and ItemBox
+
+    -- 1. Remove the intended amount from the source player first
+    if RemoveItem(src, itemName, amountToGive, itemSlot, "Attempting to give to player ID: " .. targetPlayerServerId) then
+        -- 2. Attempt to add the full intended amount to the target player
+        local actualAmountAddedToTarget = AddItem(TargetPlayer.PlayerData.source, itemName, amountToGive, nil, actualItemInfoToGive, "Received from player ID: " .. src)
+
+        if actualAmountAddedToTarget > 0 then
+            -- Items were successfully given to the target (partially or fully)
+            
+            -- Calculate if any items need to be returned to the source
+            local amountNotSuccessfullyGiven = amountToGive - actualAmountAddedToTarget
+            if amountNotSuccessfullyGiven > 0 then
+                -- Try to give back the items that couldn't be transferred to the target
+                local amountReturnedToSource = AddItem(src, itemName, amountNotSuccessfullyGiven, nil, actualItemInfoToGive, "Returned unaccepted items from give attempt")
+                if amountReturnedToSource ~= amountNotSuccessfullyGiven then
+                    -- This is a critical issue: couldn't return all items to source.
+                    print(string.format("CRITICAL QB-INV: Failed to return all unaccepted items to source %s. Item: %s, Tried to return: %d, Actually returned: %d. Items potentially lost.", src, itemName, amountNotSuccessfullyGiven, amountReturnedToSource))
+                    TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.give_partial_return_fail_critical', {item = sharedItemData.label}), 'error')
+                    -- Consider logging this to a special admin log or a failsafe for lost items
+                else
+                    TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.give_partial_items_returned', {amount = amountNotSuccessfullyGiven, item = sharedItemData.label}), 'warning')
+                end
+            end
+
+            -- Trigger animations and notifications for the 'actualAmountAddedToTarget'
+            TriggerClientEvent('qb-inventory:client:giveAnim', src)
+            TriggerClientEvent('qb-inventory:client:ItemBox', src, sharedItemData, 'remove', actualAmountAddedToTarget) -- Show visual removal of what was ACTUALLY given
+            
+            TriggerClientEvent('qb-inventory:client:giveAnim', TargetPlayer.PlayerData.source)
+            TriggerClientEvent('qb-inventory:client:ItemBox', TargetPlayer.PlayerData.source, sharedItemData, 'add', actualAmountAddedToTarget)
+            
+            TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.you_gave_item_success', {amount = actualAmountAddedToTarget, item = sharedItemData.label, target_name = TargetPlayer.PlayerData.charinfo.firstname}), 'success')
+            TriggerClientEvent('QBCore:Notify', TargetPlayer.PlayerData.source, Lang:t('notify.received_item_success', {amount = actualAmountAddedToTarget, item = sharedItemData.label, giver_name = SourcePlayer.PlayerData.charinfo.firstname}), 'success')
+
+        else -- AddItem to target failed completely (actualAmountAddedToTarget was 0)
+            TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.target_could_not_receive_item', {item_name = sharedItemData.label}), 'error')
+            -- Must try to return all initially removed items to the source player
+            local amountReturnedToSource = AddItem(src, itemName, amountToGive, itemSlot, actualItemInfoToGive, "Returned all items from failed give attempt (target couldn't receive)")
+            if amountReturnedToSource ~= amountToGive then
+                print(string.format("CRITICAL QB-INV: Failed to return ALL items to source %s after target AddItem failed. Item: %s, Amount to return: %d, Actually returned: %d. Items potentially lost.", src, itemName, amountToGive, amountReturnedToSource))
+                TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.give_full_return_fail_critical', {item = sharedItemData.label}), 'error')
+                -- Consider logging this to a special admin log or a failsafe for lost items
+            else
+                -- Items fully returned to source, no effective change for source other than failed attempt.
+                -- No ItemBox for removal needed for source as it was all returned.
+                TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.give_items_returned_to_you', {item_name = sharedItemData.label}), 'info')
+            end
+        end
+        
+        -- Update UIs for both players if their inventory was open
+        if Player(TargetPlayer.PlayerData.source).state and Player(TargetPlayer.PlayerData.source).state.inv_busy then
+            TriggerClientEvent('qb-inventory:client:updateInventory', TargetPlayer.PlayerData.source)
+        end
+        if Player(src).state and Player(src).state.inv_busy then
+            TriggerClientEvent('qb-inventory:client:updateInventory', src)
+        end
+    else
+        -- Failed to remove the item from the source player initially
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.failed_to_remove_for_give'), 'error')
+    end
+end)
+
 -- RegisterNetEvent('qb-inventory:server:openDrop', function(dropId)
 --     local src = source
 --     local Player = QBCore.Functions.GetPlayer(src)

@@ -133,6 +133,7 @@ RegisterNetEvent('qb-inventory:client:hotbar', function(items)
     })
 end)
 
+
 RegisterNetEvent('qb-inventory:client:closeInv', function()
     SendNUIMessage({
         action = 'close',
@@ -278,6 +279,50 @@ RegisterNUICallback('RemoveAttachment', function(data, cb)
     end, data.AttachmentData, WeaponData)
 end)
 
+-- Added
+RegisterNUICallback('NuiFocusRemoveItem', function(data, cb)
+    if data and data.item and data.item.slot and data.item.name and data.amount then
+        local itemSlot = tonumber(data.item.slot)
+        local itemName = data.item.name
+        local amountToRemove = tonumber(data.amount)
+
+        if itemSlot and itemName and amountToRemove > 0 then
+            -- Trigger a server event to handle the removal
+            -- Pass the slot, item name, and amount to remove
+            TriggerServerEvent('qb-inventory:server:DoItemRemoval', itemSlot, itemName, amountToRemove)
+            cb('ok')
+        else
+            print('[qb-inventory] NuiFocusRemoveItem: Invalid data received from NUI.')
+            cb('error')
+        end
+    else
+        print('[qb-inventory] NuiFocusRemoveItem: Incomplete data received from NUI.')
+        cb('error')
+    end
+end)
+
+RegisterNUICallback('NuiFocusGiveItem', function(data, cb)
+    if data and data.item and data.item.slot and data.item.name and data.amount and data.targetPlayerId then
+        local itemSlot = tonumber(data.item.slot)
+        local itemName = data.item.name
+        local itemInfo = data.item.info -- Pass along item info
+        local amountToGive = tonumber(data.amount)
+        local targetPlayerId = tonumber(data.targetPlayerId)
+
+        if itemSlot and itemName and amountToGive > 0 and targetPlayerId and targetPlayerId > 0 then
+            TriggerServerEvent('qb-inventory:server:DoGiveItemToPlayerId', itemSlot, itemName, itemInfo, amountToGive, targetPlayerId)
+            cb({ success = true }) -- Acknowledge NUI received request
+        else
+            print('[qb-inventory] NuiFocusGiveItem: Invalid data received from NUI.')
+            cb({ success = false, message = "Invalid data sent." })
+        end
+    else
+        print('[qb-inventory] NuiFocusGiveItem: Incomplete data received from NUI.')
+        cb({ success = false, message = "Incomplete data." })
+    end
+end)
+
+---
 -- Vending
 
 CreateThread(function()

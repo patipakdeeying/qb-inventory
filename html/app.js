@@ -3,24 +3,24 @@ const InventoryContainer = Vue.createApp({
         return this.getInitialState();
     },
     computed: {
-        // playerWeight() {
-        //     const weight = Object.values(this.playerInventory).reduce((total, item) => {
-        //         if (item && item.weight !== undefined && item.amount !== undefined) {
-        //             return total + item.weight * item.amount;
-        //         }
-        //         return total;
-        //     }, 0);
-        //     return isNaN(weight) ? 0 : weight;
-        // },
-        // otherInventoryWeight() {
-        //     const weight = Object.values(this.otherInventory).reduce((total, item) => {
-        //         if (item && item.weight !== undefined && item.amount !== undefined) {
-        //             return total + item.weight * item.amount;
-        //         }
-        //         return total;
-        //     }, 0);
-        //     return isNaN(weight) ? 0 : weight;
-        // },
+        playerWeight() {
+            const weight = Object.values(this.playerInventory).reduce((total, item) => {
+                if (item && item.weight !== undefined && item.amount !== undefined) {
+                    return total + item.weight * item.amount;
+                }
+                return total;
+            }, 0);
+            return isNaN(weight) ? 0 : weight;
+        },
+        otherInventoryWeight() {
+            const weight = Object.values(this.otherInventory).reduce((total, item) => {
+                if (item && item.weight !== undefined && item.amount !== undefined) {
+                    return total + item.weight * item.amount;
+                }
+                return total;
+            }, 0);
+            return isNaN(weight) ? 0 : weight;
+        },
         weightBarClass() {
             const weightPercentage = (this.playerWeight / this.maxWeight) * 100;
             if (weightPercentage < 50) {
@@ -104,10 +104,22 @@ const InventoryContainer = Vue.createApp({
                 ghostElement: null,
                 dragStartInventoryType: "player",
                 transferAmount: null,
+                //aded for remove functionality
+                showQuantityInputModal: false,
+                showConfirmRemoveModal: false,
+                itemForRemovalAction: null,
+                inputQuantityString: '',
+                quantityForRemovalAction: 0,
+                quantityError: '',
+                //added for give item functionality
+                showGiveItemModal: false,
+                itemToGive: null,
+                giveTargetPlayerId: '',
+                giveQuantityString: '', // Initialize as empty for placeholder to show
+                giveItemError: '',
             };
         },
         openInventory(data) {
-            console.log("[QB-Inv NUI] app.js openInventory method called. Data.other:", JSON.stringify(data.other));
             if (this.showHotbar) {
                 this.toggleHotbar(false);
             }
@@ -157,7 +169,7 @@ const InventoryContainer = Vue.createApp({
                 this.otherInventoryLabel = data.other.label;
                 this.otherInventoryMaxWeight = data.other.maxweight;
                 this.otherInventorySlots = data.other.slots;
-                console.log("[QB-Inv NUI] OtherInv Slots:", this.otherInventorySlots, "OtherInv Qty Limit:", this.otherInventoryTotalQuantityLimit);
+
                 if (this.otherInventoryName.startsWith("shop-")) {
                     this.isShopInventory = true;
                 } else {
@@ -557,62 +569,195 @@ const InventoryContainer = Vue.createApp({
                 this.inventoryError(sourceSlot);
             }
         },
-        // async dropItem(item, quantity) {
-        //     if (item && item.name) {
-        //         const playerItemKey = Object.keys(this.playerInventory).find((key) => this.playerInventory[key] && this.playerInventory[key].slot === item.slot);
-        //         if (playerItemKey) {
-        //             let amountToGive;
+        // added for remove functionality
+        initiateItemRemovalProcess(item) {
+            if (!item || !item.name) {
+                this.showContextMenu = false;
+                return;
+            }
+            this.itemForRemovalAction = item;
+            this.quantityError = ''; // Clear previous errors
+            const currentAmount = parseInt(item.amount) || 0;
 
-        //             if (typeof quantity === "string") {
-        //                 switch (quantity) {
-        //                     case "half":
-        //                         amountToGive = Math.ceil(item.amount / 2);
-        //                         break;
-        //                     case "all":
-        //                         amountToGive = item.amount;
-        //                         break;
-        //                     default:
-        //                         console.error("Invalid quantity specified.");
-        //                         return;
-        //                 }
-        //             } else if (typeof quantity === "number" && quantity > 0) {
-        //                 amountToGive = quantity;
-        //             } else {
-        //                 console.error("Invalid quantity type specified.");
-        //                 return;
-        //             }
+            this.showContextMenu = false; // Close main context menu
 
-        //             if (amountToGive > item.amount) {
-        //                 amountToGive = item.amount;
-        //             }
+            if (currentAmount > 1) {
+                this.inputQuantityString = ''; // Default to 1
+                this.showQuantityInputModal = true;
+            } else if (currentAmount === 1) {
+                this.quantityForRemovalAction = 1;
+                this.showConfirmRemoveModal = true;
+            } else {
+                // Should not happen if item is in context menu, but good practice
+                this.resetRemovalActionState();
+            }
+        },
 
-        //             const newItem = {
-        //                 ...item,
-        //                 amount: amountToGive,
-        //                 slot: 1,
-        //                 inventory: "other",
-        //             };
+        submitQuantityToRemove() {
+            if (!this.itemForRemovalAction) return;
+            this.quantityError = ''; // Clear previous error
 
-        //             try {
-        //                 const response = await axios.post("https://qb-inventory/DropItem", {
-        //                     ...newItem,
-        //                     fromSlot: item.slot,
-        //                 });
+            const currentAmount = parseInt(this.itemForRemovalAction.amount) || 0;
+            const enteredQuantity = parseInt(this.inputQuantityString);
 
-        //                 if (response.data) {
-        //                     delete this.playerInventory[playerItemKey];
-        //                     this.otherInventory[1] = newItem;
-        //                     this.otherInventoryName = response.data;
-        //                     this.otherInventoryLabel = response.data;
-        //                     this.isOtherInventoryEmpty = false;
-        //                 }
-        //             } catch (error) {
-        //                 this.inventoryError(item.slot);
-        //             }
-        //         }
-        //     }
-        //     this.showContextMenu = false;
-        // },
+            if (isNaN(enteredQuantity) || enteredQuantity <= 0 || enteredQuantity > currentAmount) {
+                this.quantityError = `Invalid quantity. Enter 1-${currentAmount}.`;
+                return;
+            }
+
+            this.quantityForRemovalAction = enteredQuantity;
+            this.showQuantityInputModal = false;
+            this.showConfirmRemoveModal = true;
+        },
+
+        confirmFinalItemRemoval() {
+            if (!this.itemForRemovalAction || this.quantityForRemovalAction <= 0) {
+                this.resetRemovalActionState();
+                return;
+            }
+            
+            axios.post("https://qb-inventory/NuiFocusRemoveItem", {
+                item: {
+                    name: this.itemForRemovalAction.name,
+                    slot: this.itemForRemovalAction.slot,
+                    // any other info your server might need
+                },
+                amount: this.quantityForRemovalAction,
+            }).catch(error => {
+                console.error("Error in NuiFocusRemoveItem:", error);
+            });
+
+            this.showConfirmRemoveModal = false;
+            this.resetRemovalActionState();
+        },
+
+        cancelRemoveAction() { // Can be used by cancel buttons or backdrop click
+            this.showQuantityInputModal = false;
+            this.showConfirmRemoveModal = false;
+            this.quantityError = '';
+            this.resetRemovalActionState();
+        },
+
+        resetRemovalActionState() {
+            this.itemForRemovalAction = null;
+            this.quantityForRemovalAction = 0;
+            this.inputQuantityString = '1';
+        },
+
+        handleModalKeyDown(event) {
+            // Check if the quantity input modal is the one currently active
+            if (this.showQuantityInputModal) {
+                if (event.key === 'f' || event.key === 'F') {
+                    event.preventDefault(); // Prevent any default 'F' key behavior (like browser find)
+                    this.setMaxQuantityToRemove(); // Call your existing method
+                }
+                // You could also add Escape key handling here to close the modal, for example:
+                // else if (event.key === 'Escape') {
+                //     event.preventDefault();
+                //     this.cancelRemoveAction();
+                // }
+            }
+            // If you add more modals that need key listeners, you can expand this or have separate handlers.
+        },
+
+        setMaxQuantityToRemove() {
+            if (this.itemForRemovalAction && this.itemForRemovalAction.amount) {
+                this.inputQuantityString = String(this.itemForRemovalAction.amount); // Set input to max amount
+                this.quantityError = ''; // Clear any previous quantity error
+            }
+        },
+        //end of added for remove functionality
+        //start give item functionality
+        initiateGiveItemProcess(item) {
+            if (!item || !item.name) {
+                this.showContextMenu = false;
+                return;
+            }
+            this.itemToGive = item;
+            this.giveTargetPlayerId = '';
+            this.giveQuantityString = ''; // Start with empty for placeholder
+            this.giveItemError = '';
+            
+            this.showContextMenu = false; // Close main context menu
+            this.showGiveItemModal = true;
+        },
+
+        setMaxGiveQuantity() {
+            if (this.itemToGive && this.itemToGive.amount) {
+                this.giveQuantityString = String(this.itemToGive.amount);
+                this.giveItemError = ''; 
+            }
+        },
+
+        async submitGiveItem() {
+            this.giveItemError = ''; // Clear previous errors
+
+            if (!this.itemToGive) {
+                this.giveItemError = "No item selected for giving.";
+                return;
+            }
+
+            const targetId = parseInt(this.giveTargetPlayerId);
+            if (isNaN(targetId) || targetId <= 0) {
+                this.giveItemError = "Invalid Player ID entered.";
+                return;
+            }
+
+            const currentAmount = parseInt(this.itemToGive.amount) || 0;
+            let quantityToGive = parseInt(this.giveQuantityString);
+
+            if (isNaN(quantityToGive) || quantityToGive <= 0 || quantityToGive > currentAmount) {
+                this.giveItemError = `Invalid quantity. Enter 1-${currentAmount}.`;
+                return;
+            }
+
+            try {
+                // Send data to Lua client to handle server-side giving
+                const response = await axios.post("https://qb-inventory/NuiFocusGiveItem", {
+                    item: { // Send necessary item details
+                        name: this.itemToGive.name,
+                        slot: this.itemToGive.slot,
+                        info: this.itemToGive.info, // Pass item info
+                        // any other details server might need
+                    },
+                    amount: quantityToGive,
+                    targetPlayerId: targetId,
+                });
+
+                if (response.data && response.data.success) {
+                    // Optionally update local inventory optimistically or wait for server update
+                    // For now, we assume server will push an update or ItemBox will handle UI change
+                    this.giveItemError = ''; // Clear error on success
+                } else if (response.data && response.data.message) {
+                    this.giveItemError = response.data.message; // Show error from server
+                } else {
+                    this.giveItemError = "Failed to give item. Unknown reason.";
+                }
+
+            } catch (error) {
+                console.error("Error in NuiFocusGiveItem:", error);
+                this.giveItemError = "An error occurred while trying to give the item.";
+            }
+            
+            // Keep modal open if there was an error to show message, otherwise close
+            if (!this.giveItemError || (response && response.data && response.data.success)) {
+                this.showGiveItemModal = false;
+                this.resetGiveItemActionState();
+            }
+        },
+
+        cancelGiveItemAction() {
+            this.showGiveItemModal = false;
+            this.resetGiveItemActionState();
+        },
+
+        resetGiveItemActionState() {
+            this.itemToGive = null;
+            this.giveTargetPlayerId = '';
+            this.giveQuantityString = '';
+            this.giveItemError = '';
+        },
+        //end give item functionality
         async useItem(item) {
             if (!item || item.useable === false) {
                 return;
@@ -681,56 +826,57 @@ const InventoryContainer = Vue.createApp({
                 this.contextMenuItem = item;
             }
         },
-        async giveItem(item, quantity) {
-            if (item && item.name) {
-                const selectedItem = item;
-                const playerHasItem = Object.values(this.playerInventory).some((invItem) => invItem && invItem.name === selectedItem.name);
+        // old giveitem method, kept for reference
+        // async giveItem(item, quantity) {
+        //     if (item && item.name) {
+        //         const selectedItem = item;
+        //         const playerHasItem = Object.values(this.playerInventory).some((invItem) => invItem && invItem.name === selectedItem.name);
 
-                if (playerHasItem) {
-                    let amountToGive;
-                    if (typeof quantity === "string") {
-                        switch (quantity) {
-                            case "half":
-                                amountToGive = Math.ceil(selectedItem.amount / 2);
-                                break;
-                            case "all":
-                                amountToGive = selectedItem.amount;
-                                break;
-                            default:
-                                console.error("Invalid quantity specified.");
-                                return;
-                        }
-                    } else {
-                        amountToGive = quantity;
-                    }
+        //         if (playerHasItem) {
+        //             let amountToGive;
+        //             if (typeof quantity === "string") {
+        //                 switch (quantity) {
+        //                     case "half":
+        //                         amountToGive = Math.ceil(selectedItem.amount / 2);
+        //                         break;
+        //                     case "all":
+        //                         amountToGive = selectedItem.amount;
+        //                         break;
+        //                     default:
+        //                         console.error("Invalid quantity specified.");
+        //                         return;
+        //                 }
+        //             } else {
+        //                 amountToGive = quantity;
+        //             }
 
-                    if (amountToGive > selectedItem.amount) {
-                        console.error("Specified quantity exceeds available amount.");
-                        return;
-                    }
+        //             if (amountToGive > selectedItem.amount) {
+        //                 console.error("Specified quantity exceeds available amount.");
+        //                 return;
+        //             }
 
-                    try {
-                        const response = await axios.post("https://qb-inventory/GiveItem", {
-                            item: selectedItem,
-                            amount: amountToGive,
-                            slot: selectedItem.slot,
-                            info: selectedItem.info,
-                        });
-                        if (!response.data) return;
+        //             try {
+        //                 const response = await axios.post("https://qb-inventory/GiveItem", {
+        //                     item: selectedItem,
+        //                     amount: amountToGive,
+        //                     slot: selectedItem.slot,
+        //                     info: selectedItem.info,
+        //                 });
+        //                 if (!response.data) return;
 
-                        this.playerInventory[selectedItem.slot].amount -= amountToGive;
-                        if (this.playerInventory[selectedItem.slot].amount === 0) {
-                            delete this.playerInventory[selectedItem.slot];
-                        }
-                    } catch (error) {
-                        console.error("An error occurred while giving the item:", error);
-                    }
-                } else {
-                    console.error("Player does not have the item in their inventory. Item cannot be given.");
-                }
-            }
-            this.showContextMenu = false;
-        },
+        //                 this.playerInventory[selectedItem.slot].amount -= amountToGive;
+        //                 if (this.playerInventory[selectedItem.slot].amount === 0) {
+        //                     delete this.playerInventory[selectedItem.slot];
+        //                 }
+        //             } catch (error) {
+        //                 console.error("An error occurred while giving the item:", error);
+        //             }
+        //         } else {
+        //             console.error("Player does not have the item in their inventory. Item cannot be given.");
+        //         }
+        //     }
+        //     this.showContextMenu = false;
+        // },
         findNextAvailableSlot(inventory) {
             for (let slot = 1; slot <= this.totalSlots; slot++) {
                 if (!inventory[slot]) {
@@ -883,7 +1029,7 @@ const InventoryContainer = Vue.createApp({
                 }
             }
             content += `<div class="tooltip-description">${description}</div>`;
-            //content += `<div class="tooltip-weight"><i class="fas fa-weight-hanging"></i> ${item.weight !== undefined && item.weight !== null ? (item.weight / 1000).toFixed(1) : "N/A"}kg</div>`;
+            content += `<div class="tooltip-weight"><i class="fas fa-weight-hanging"></i> ${item.weight !== undefined && item.weight !== null ? (item.weight / 1000).toFixed(1) : "N/A"}kg</div>`;
             content += `</div>`;
             return content;
         },
@@ -911,20 +1057,34 @@ const InventoryContainer = Vue.createApp({
                 });
         },
     },
+    //TESTING
+    // mounted() {
+    //     window.addEventListener("keydown", (event) => {
+    //         const key = event.key;
+    //         if (key === "Escape" || key === "Tab") {
+    //             if (this.isInventoryOpen) {
+    //                 this.closeInventory();
+    //             }
+    //         }
+    //     });
     mounted() {
+        // Add the global keydown listener when the component is mounted
+        window.addEventListener('keydown', this.handleModalKeyDown);
+
+        // Your existing mounted logic (like the listener for "Escape" or "Tab" for closing inventory,
+        // and the window.addEventListener("message", ...) should remain here)
+        // For example, your existing listener:
         window.addEventListener("keydown", (event) => {
             const key = event.key;
-            if (key === "Escape" || key === "Tab") {
+            if ((key === "Escape" || key === "Tab") && !this.showQuantityInputModal && !this.showConfirmRemoveModal) { // Ensure modals are not open
                 if (this.isInventoryOpen) {
                     this.closeInventory();
                 }
             }
         });
-
         window.addEventListener("message", (event) => {
             switch (event.data.action) {
                 case "open":
-                    console.log("[QB-Inv NUI] Received 'open' action. Full data:", JSON.stringify(event.data));
                     this.openInventory(event.data);
                     break;
                 case "close":

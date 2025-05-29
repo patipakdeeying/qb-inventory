@@ -110,12 +110,12 @@ VehicleStorage = {
         ['italigtb2'] = {
             gloveboxSlots = 3,              -- Max number of different item types/occupied slots
             gloveboxTotalItemQuantityLimit = 50, -- Max sum of quantities of all items in glovebox
-            trunkSlots = 10,
+            trunkSlots = 2,
             trunkTotalItemQuantityLimit = 200,
             gloveboxAllowedItems = nil,
             gloveboxDisallowedItems = { 'weapon_knife', 'weapon_bat' },
             trunkAllowedItems = nil,
-            trunkDisallowedItems = { 'weapon_rpg', 'weapon_minigun' },
+            trunkDisallowedItems = { 'weapon_knife', 'weapon_bat' },
         },
         -- Add other specific vehicle models
     }

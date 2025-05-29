@@ -11,14 +11,34 @@ local function InitializeInventory(inventoryId, data)
     return Inventories[inventoryId]
 end
 
-local function GetFirstFreeSlot(items, maxSlots)
-    local startSlot = Config.HotbarSlots + 1 -- Start checking slots after hotbar
-    for i = startSlot, maxSlots do -- Modify the loop to start from startSlot
+local function GetFirstFreeSlot(items, maxSlots, isPlayerInventory) -- Added isPlayerInventory parameter
+    local startSearchSlot = 1
+    if isPlayerInventory then
+        startSearchSlot = Config.HotbarSlots + 1
+    end
+
+    -- First pass: Search from the determined startSearchSlot up to maxSlots
+    for i = startSearchSlot, maxSlots do
         if items[i] == nil then
             return i
         end
     end
-    return nil
+
+    -- If it was a player inventory AND we started searching after the hotbar (startSearchSlot > 1)
+    -- AND no slot was found in the main area, THEN we check the hotbar slots (1 to Config.HotbarSlots).
+    -- This means items generally go to main inventory, but will fill hotbar if main is full.
+    if isPlayerInventory and startSearchSlot > 1 then
+        for i = 1, Config.HotbarSlots do
+            if items[i] == nil then
+                return i -- Found a slot in the hotbar
+            end
+        end
+    end
+    
+    -- For non-player inventories, if the first loop (which started at 1) didn't find anything,
+    -- there are no other places to check.
+    
+    return nil -- No free slot found
 end
 
 local function SetupShopItems(shopItems)
@@ -857,7 +877,7 @@ function AddItem(identifier, item, amount, slot, info, reason)
             if i == 1 and slot ~= nil and type(slot) == 'number' and slot >= 1 and slot <= invFullConfig.slots and not inventoryTable[slot] then
                 finalPlacementSlot = slot
             else
-                finalPlacementSlot = GetFirstFreeSlot(inventoryTable, invFullConfig.slots)
+                finalPlacementSlot = GetFirstFreeSlot(inventoryTable, invFullConfig.slots, isPlayerInventory)
             end
 
             if not finalPlacementSlot then
@@ -904,7 +924,7 @@ function AddItem(identifier, item, amount, slot, info, reason)
             else -- New item type for player, create in a new slot
                 local amountForNewPlayerStack = math.min(amount, effectiveMaxStackForItem)
                 if amountForNewPlayerStack > 0 then
-                    local finalPlacementSlot = GetFirstFreeSlot(inventoryTable, invFullConfig.slots)
+                    local finalPlacementSlot = GetFirstFreeSlot(inventoryTable, invFullConfig.slots, true)
                     if not finalPlacementSlot then
                         TriggerClientEvent('QBCore:Notify', sourcePlayer or -1, "Inventory full.", "error", 2500)
                         -- totalAmountAdded remains 0
@@ -963,7 +983,7 @@ function AddItem(identifier, item, amount, slot, info, reason)
                 end
 
                 -- If we reached here, a new slot is available, and quantity cap allows addition
-                local finalPlacementSlot = GetFirstFreeSlot(inventoryTable, containerSlotLimit) -- Use containerSlotLimit here
+                local finalPlacementSlot = GetFirstFreeSlot(inventoryTable, containerSlotLimit, false) -- Use containerSlotLimit here
                 if not finalPlacementSlot then
                     -- This should ideally be caught by currentFilledSlots >= containerSlotLimit, but good safeguard
                     print('AddItem WARNING: No free slot in other inventory '..identifier..' for new item type '..item..', though slot count indicated space.')
