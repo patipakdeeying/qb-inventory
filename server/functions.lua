@@ -252,16 +252,16 @@ exports('GetItemBySlot', GetItemBySlot)
 
 function GetTotalWeight(items)
     if not items then return 0 end
-    local weight = 0
-    for _, item in pairs(items) do
-        local amount = item.amount
-        if type(amount) ~= 'number' then
-            amount = 1
-        end
-
-        weight = weight + (item.weight * amount)
-    end
-    return tonumber(weight)
+    -- local weight = 0
+    -- for _, item in pairs(items) do
+    --     local amount = item.amount
+    --     if type(amount) ~= 'number' then
+    --         amount = 1
+    --     end
+    --     weight = weight + (item.weight * amount)
+    -- end
+    -- return tonumber(weight)
+    return 0 -- Add this line: Always return 0
 end
 
 exports('GetTotalWeight', GetTotalWeight)
@@ -312,9 +312,9 @@ function GetSlots(identifier)
     elseif Inventories[identifier] then
         inventory = Inventories[identifier].items
         maxSlots = Inventories[identifier].slots
-    elseif Drops[identifier] then
-        inventory = Drops[identifier].items
-        maxSlots = Drops[identifier].slots
+    -- elseif Drops[identifier] then
+    --     inventory = Drops[identifier].items
+    --     maxSlots = Drops[identifier].slots
     end
     if not inventory then return 0, maxSlots end
     local slotsUsed = 0
@@ -383,11 +383,11 @@ function CanAddItem(identifier, item, amount)
         return false
     end
 
-    local weight = itemData.weight * amount
-    local totalWeight = GetTotalWeight(items) + weight
-    if totalWeight > inventory.maxweight then
-        return false, 'weight'
-    end
+    -- local weight = itemData.weight * amount -- REMOVE or COMMENT OUT this line
+    -- local totalWeight = GetTotalWeight(items) + weight -- REMOVE or COMMENT OUT this line
+    -- if totalWeight > inventory.maxweight then -- REMOVE or COMMENT OUT this line
+    --     return false, 'weight' -- REMOVE or COMMENT OUT this line
+    -- end
 
     local slotsUsed, _ = GetSlots(identifier)
 
@@ -407,12 +407,13 @@ function GetFreeWeight(source)
         warn('Source was not passed into GetFreeWeight')
         return 0
     end
-    local Player = QBCore.Functions.GetPlayer(source)
-    if not Player then return 0 end
+    -- local Player = QBCore.Functions.GetPlayer(source)
+    -- if not Player then return 0 end
 
-    local totalWeight = GetTotalWeight(Player.PlayerData.items)
-    local freeWeight = Config.MaxWeight - totalWeight
-    return freeWeight
+    -- local totalWeight = GetTotalWeight(Player.PlayerData.items)
+    -- local freeWeight = Config.MaxWeight - totalWeight
+    -- return freeWeight
+    return 999999999 -- Add this line: Always return a high value
 end
 
 exports('GetFreeWeight', GetFreeWeight)
@@ -705,11 +706,11 @@ function AddItem(identifier, item, amount, slot, info, reason)
         return false
     end
 
-    local totalWeight = GetTotalWeight(inventory)
-    if totalWeight + (itemInfo.weight * amount) > inventoryWeight then
-        print('AddItem: Not enough weight available')
-        return false
-    end
+    -- local totalWeight = GetTotalWeight(inventory)
+    -- if totalWeight + (itemInfo.weight * amount) > inventoryWeight then
+    --     print('AddItem: Not enough weight available')
+    --     return false
+    -- end
 
     amount = tonumber(amount) or 1
     local updated = false

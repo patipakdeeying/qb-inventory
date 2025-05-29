@@ -278,7 +278,7 @@ div {
 
 /* Weight Bar Styles */
 
-.current-weight > p {
+/* .current-weight > p {
     text-align: right;
     padding-right: 5px;
 }
@@ -303,7 +303,7 @@ div {
 
 .weight-bar-fill.high {
     background-color: var(--error);
-}
+} */
 
 /* Hotbar */
 

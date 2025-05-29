@@ -1,6 +1,6 @@
 QBCore = exports['qb-core']:GetCoreObject()
 Inventories = {}
-Drops = {}
+--Drops = {}
 RegisteredShops = {}
 
 CreateThread(function()
@@ -19,18 +19,18 @@ CreateThread(function()
     end)
 end)
 
-CreateThread(function()
-    while true do
-        for k, v in pairs(Drops) do
-            if v and (v.createdTime + (Config.CleanupDropTime * 60) < os.time()) and not Drops[k].isOpen then
-                local entity = NetworkGetEntityFromNetworkId(v.entityId)
-                if DoesEntityExist(entity) then DeleteEntity(entity) end
-                Drops[k] = nil
-            end
-        end
-        Wait(Config.CleanupDropInterval * 60000)
-    end
-end)
+-- CreateThread(function()
+--     while true do
+--         for k, v in pairs(Drops) do
+--             if v and (v.createdTime + (Config.CleanupDropTime * 60) < os.time()) and not Drops[k].isOpen then
+--                 local entity = NetworkGetEntityFromNetworkId(v.entityId)
+--                 if DoesEntityExist(entity) then DeleteEntity(entity) end
+--                 Drops[k] = nil
+--             end
+--         end
+--         Wait(Config.CleanupDropInterval * 60000)
+--     end
+-- end)
 
 -- Handlers
 
@@ -161,17 +161,17 @@ RegisterNetEvent('qb-inventory:server:closeInventory', function(inventory)
         Player(targetId).state.inv_busy = false
         return
     end
-    if Drops[inventory] then
-        Drops[inventory].isOpen = false
-        if #Drops[inventory].items == 0 and not Drops[inventory].isOpen then -- if no listeed items in the drop on close
-            TriggerClientEvent('qb-inventory:client:removeDropTarget', -1, Drops[inventory].entityId)
-            Wait(500)
-            local entity = NetworkGetEntityFromNetworkId(Drops[inventory].entityId)
-            if DoesEntityExist(entity) then DeleteEntity(entity) end
-            Drops[inventory] = nil
-        end
-        return
-    end
+    -- if Drops[inventory] then
+    --     Drops[inventory].isOpen = false
+    --     if #Drops[inventory].items == 0 and not Drops[inventory].isOpen then -- if no listeed items in the drop on close
+    --         TriggerClientEvent('qb-inventory:client:removeDropTarget', -1, Drops[inventory].entityId)
+    --         Wait(500)
+    --         local entity = NetworkGetEntityFromNetworkId(Drops[inventory].entityId)
+    --         if DoesEntityExist(entity) then DeleteEntity(entity) end
+    --         Drops[inventory] = nil
+    --     end
+    --     return
+    -- end
     if not Inventories[inventory] then return end
     Inventories[inventory].isOpen = false
     MySQL.prepare('INSERT INTO inventories (identifier, items) VALUES (?, ?) ON DUPLICATE KEY UPDATE items = ?', { inventory, json.encode(Inventories[inventory].items), json.encode(Inventories[inventory].items) })
@@ -239,31 +239,31 @@ RegisterNetEvent('qb-inventory:server:useItem', function(item)
     end
 end)
 
-RegisterNetEvent('qb-inventory:server:openDrop', function(dropId)
-    local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    if not Player then return end
-    local playerPed = GetPlayerPed(src)
-    local playerCoords = GetEntityCoords(playerPed)
-    local drop = Drops[dropId]
-    if not drop then return end
-    if drop.isOpen then return end
-    local distance = #(playerCoords - drop.coords)
-    if distance > 2.5 then return end
-    local formattedInventory = {
-        name = dropId,
-        label = dropId,
-        maxweight = drop.maxweight,
-        slots = drop.slots,
-        inventory = drop.items
-    }
-    drop.isOpen = true
-    TriggerClientEvent('qb-inventory:client:openInventory', source, Player.PlayerData.items, formattedInventory)
-end)
+-- RegisterNetEvent('qb-inventory:server:openDrop', function(dropId)
+--     local src = source
+--     local Player = QBCore.Functions.GetPlayer(src)
+--     if not Player then return end
+--     local playerPed = GetPlayerPed(src)
+--     local playerCoords = GetEntityCoords(playerPed)
+--     local drop = Drops[dropId]
+--     if not drop then return end
+--     if drop.isOpen then return end
+--     local distance = #(playerCoords - drop.coords)
+--     if distance > 2.5 then return end
+--     local formattedInventory = {
+--         name = dropId,
+--         label = dropId,
+--         maxweight = drop.maxweight,
+--         slots = drop.slots,
+--         inventory = drop.items
+--     }
+--     drop.isOpen = true
+--     TriggerClientEvent('qb-inventory:client:openInventory', source, Player.PlayerData.items, formattedInventory)
+-- end)
 
-RegisterNetEvent('qb-inventory:server:updateDrop', function(dropId, coords)
-    Drops[dropId].coords = coords
-end)
+-- RegisterNetEvent('qb-inventory:server:updateDrop', function(dropId, coords)
+--     Drops[dropId].coords = coords
+-- end)
 
 RegisterNetEvent('qb-inventory:server:snowball', function(action)
     if action == 'add' then
@@ -279,49 +279,49 @@ QBCore.Functions.CreateCallback('qb-inventory:server:GetCurrentDrops', function(
     cb(Drops)
 end)
 
-QBCore.Functions.CreateCallback('qb-inventory:server:createDrop', function(source, cb, item)
-    local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    if not Player then
-        cb(false)
-        return
-    end
-    local playerPed = GetPlayerPed(src)
-    local playerCoords = GetEntityCoords(playerPed)
-    if RemoveItem(src, item.name, item.amount, item.fromSlot, 'dropped item') then
-        if item.type == 'weapon' then checkWeapon(src, item) end
-        TaskPlayAnim(playerPed, 'pickup_object', 'pickup_low', 8.0, -8.0, 2000, 0, 0, false, false, false)
-        local bag = CreateObjectNoOffset(Config.ItemDropObject, playerCoords.x + 0.5, playerCoords.y + 0.5, playerCoords.z, true, true, false)
-        local dropId = NetworkGetNetworkIdFromEntity(bag)
-        local newDropId = 'drop-' .. dropId
-        local itemsTable = setmetatable({ item }, {
-            __len = function(t)
-                local length = 0
-                for _ in pairs(t) do length += 1 end
-                return length
-            end
-        })
-        if not Drops[newDropId] then
-            Drops[newDropId] = {
-                name = newDropId,
-                label = 'Drop',
-                items = itemsTable,
-                entityId = dropId,
-                createdTime = os.time(),
-                coords = playerCoords,
-                maxweight = Config.DropSize.maxweight,
-                slots = Config.DropSize.slots,
-                isOpen = true
-            }
-            TriggerClientEvent('qb-inventory:client:setupDropTarget', -1, dropId)
-        else
-            table.insert(Drops[newDropId].items, item)
-        end
-        cb(dropId)
-    else
-        cb(false)
-    end
-end)
+-- QBCore.Functions.CreateCallback('qb-inventory:server:createDrop', function(source, cb, item)
+--     local src = source
+--     local Player = QBCore.Functions.GetPlayer(src)
+--     if not Player then
+--         cb(false)
+--         return
+--     end
+--     local playerPed = GetPlayerPed(src)
+--     local playerCoords = GetEntityCoords(playerPed)
+--     if RemoveItem(src, item.name, item.amount, item.fromSlot, 'dropped item') then
+--         if item.type == 'weapon' then checkWeapon(src, item) end
+--         TaskPlayAnim(playerPed, 'pickup_object', 'pickup_low', 8.0, -8.0, 2000, 0, 0, false, false, false)
+--         local bag = CreateObjectNoOffset(Config.ItemDropObject, playerCoords.x + 0.5, playerCoords.y + 0.5, playerCoords.z, true, true, false)
+--         local dropId = NetworkGetNetworkIdFromEntity(bag)
+--         local newDropId = 'drop-' .. dropId
+--         local itemsTable = setmetatable({ item }, {
+--             __len = function(t)
+--                 local length = 0
+--                 for _ in pairs(t) do length += 1 end
+--                 return length
+--             end
+--         })
+--         if not Drops[newDropId] then
+--             Drops[newDropId] = {
+--                 name = newDropId,
+--                 label = 'Drop',
+--                 items = itemsTable,
+--                 entityId = dropId,
+--                 createdTime = os.time(),
+--                 coords = playerCoords,
+--                 maxweight = Config.DropSize.maxweight,
+--                 slots = Config.DropSize.slots,
+--                 isOpen = true
+--             }
+--             TriggerClientEvent('qb-inventory:client:setupDropTarget', -1, dropId)
+--         else
+--             table.insert(Drops[newDropId].items, item)
+--         end
+--         cb(dropId)
+--     else
+--         cb(false)
+--     end
+-- end)
 
 QBCore.Functions.CreateCallback('qb-inventory:server:attemptPurchase', function(source, cb, data)
     local itemInfo = data.item
@@ -461,10 +461,10 @@ local function getItem(inventoryId, src, slot)
         if targetPlayer and targetPlayer.PlayerData.items then
             items = targetPlayer.PlayerData.items
         end
-    elseif inventoryId:find('drop-') == 1 then
-        if Drops[inventoryId] and Drops[inventoryId]['items'] then
-            items = Drops[inventoryId]['items']
-        end
+    -- elseif inventoryId:find('drop-') == 1 then
+    --     if Drops[inventoryId] and Drops[inventoryId]['items'] then
+    --         items = Drops[inventoryId]['items']
+    --     end
     else
         if Inventories[inventoryId] and Inventories[inventoryId]['items'] then
             items = Inventories[inventoryId]['items']

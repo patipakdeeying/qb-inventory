@@ -3,24 +3,24 @@ const InventoryContainer = Vue.createApp({
         return this.getInitialState();
     },
     computed: {
-        playerWeight() {
-            const weight = Object.values(this.playerInventory).reduce((total, item) => {
-                if (item && item.weight !== undefined && item.amount !== undefined) {
-                    return total + item.weight * item.amount;
-                }
-                return total;
-            }, 0);
-            return isNaN(weight) ? 0 : weight;
-        },
-        otherInventoryWeight() {
-            const weight = Object.values(this.otherInventory).reduce((total, item) => {
-                if (item && item.weight !== undefined && item.amount !== undefined) {
-                    return total + item.weight * item.amount;
-                }
-                return total;
-            }, 0);
-            return isNaN(weight) ? 0 : weight;
-        },
+        // playerWeight() {
+        //     const weight = Object.values(this.playerInventory).reduce((total, item) => {
+        //         if (item && item.weight !== undefined && item.amount !== undefined) {
+        //             return total + item.weight * item.amount;
+        //         }
+        //         return total;
+        //     }, 0);
+        //     return isNaN(weight) ? 0 : weight;
+        // },
+        // otherInventoryWeight() {
+        //     const weight = Object.values(this.otherInventory).reduce((total, item) => {
+        //         if (item && item.weight !== undefined && item.amount !== undefined) {
+        //             return total + item.weight * item.amount;
+        //         }
+        //         return total;
+        //     }, 0);
+        //     return isNaN(weight) ? 0 : weight;
+        // },
         weightBarClass() {
             const weightPercentage = (this.playerWeight / this.maxWeight) * 100;
             if (weightPercentage < 50) {
@@ -556,62 +556,62 @@ const InventoryContainer = Vue.createApp({
                 this.inventoryError(sourceSlot);
             }
         },
-        async dropItem(item, quantity) {
-            if (item && item.name) {
-                const playerItemKey = Object.keys(this.playerInventory).find((key) => this.playerInventory[key] && this.playerInventory[key].slot === item.slot);
-                if (playerItemKey) {
-                    let amountToGive;
+        // async dropItem(item, quantity) {
+        //     if (item && item.name) {
+        //         const playerItemKey = Object.keys(this.playerInventory).find((key) => this.playerInventory[key] && this.playerInventory[key].slot === item.slot);
+        //         if (playerItemKey) {
+        //             let amountToGive;
 
-                    if (typeof quantity === "string") {
-                        switch (quantity) {
-                            case "half":
-                                amountToGive = Math.ceil(item.amount / 2);
-                                break;
-                            case "all":
-                                amountToGive = item.amount;
-                                break;
-                            default:
-                                console.error("Invalid quantity specified.");
-                                return;
-                        }
-                    } else if (typeof quantity === "number" && quantity > 0) {
-                        amountToGive = quantity;
-                    } else {
-                        console.error("Invalid quantity type specified.");
-                        return;
-                    }
+        //             if (typeof quantity === "string") {
+        //                 switch (quantity) {
+        //                     case "half":
+        //                         amountToGive = Math.ceil(item.amount / 2);
+        //                         break;
+        //                     case "all":
+        //                         amountToGive = item.amount;
+        //                         break;
+        //                     default:
+        //                         console.error("Invalid quantity specified.");
+        //                         return;
+        //                 }
+        //             } else if (typeof quantity === "number" && quantity > 0) {
+        //                 amountToGive = quantity;
+        //             } else {
+        //                 console.error("Invalid quantity type specified.");
+        //                 return;
+        //             }
 
-                    if (amountToGive > item.amount) {
-                        amountToGive = item.amount;
-                    }
+        //             if (amountToGive > item.amount) {
+        //                 amountToGive = item.amount;
+        //             }
 
-                    const newItem = {
-                        ...item,
-                        amount: amountToGive,
-                        slot: 1,
-                        inventory: "other",
-                    };
+        //             const newItem = {
+        //                 ...item,
+        //                 amount: amountToGive,
+        //                 slot: 1,
+        //                 inventory: "other",
+        //             };
 
-                    try {
-                        const response = await axios.post("https://qb-inventory/DropItem", {
-                            ...newItem,
-                            fromSlot: item.slot,
-                        });
+        //             try {
+        //                 const response = await axios.post("https://qb-inventory/DropItem", {
+        //                     ...newItem,
+        //                     fromSlot: item.slot,
+        //                 });
 
-                        if (response.data) {
-                            delete this.playerInventory[playerItemKey];
-                            this.otherInventory[1] = newItem;
-                            this.otherInventoryName = response.data;
-                            this.otherInventoryLabel = response.data;
-                            this.isOtherInventoryEmpty = false;
-                        }
-                    } catch (error) {
-                        this.inventoryError(item.slot);
-                    }
-                }
-            }
-            this.showContextMenu = false;
-        },
+        //                 if (response.data) {
+        //                     delete this.playerInventory[playerItemKey];
+        //                     this.otherInventory[1] = newItem;
+        //                     this.otherInventoryName = response.data;
+        //                     this.otherInventoryLabel = response.data;
+        //                     this.isOtherInventoryEmpty = false;
+        //                 }
+        //             } catch (error) {
+        //                 this.inventoryError(item.slot);
+        //             }
+        //         }
+        //     }
+        //     this.showContextMenu = false;
+        // },
         async useItem(item) {
             if (!item || item.useable === false) {
                 return;
@@ -882,7 +882,7 @@ const InventoryContainer = Vue.createApp({
                 }
             }
             content += `<div class="tooltip-description">${description}</div>`;
-            content += `<div class="tooltip-weight"><i class="fas fa-weight-hanging"></i> ${item.weight !== undefined && item.weight !== null ? (item.weight / 1000).toFixed(1) : "N/A"}kg</div>`;
+            //content += `<div class="tooltip-weight"><i class="fas fa-weight-hanging"></i> ${item.weight !== undefined && item.weight !== null ? (item.weight / 1000).toFixed(1) : "N/A"}kg</div>`;
             content += `</div>`;
             return content;
         },

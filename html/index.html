@@ -23,13 +23,13 @@
                             <div class="inventory-label">
                                 <p>{{ inventoryLabel }}</p>
                             </div>
-                            <div class="current-weight">
+                            <!-- <div class="current-weight">
                                 <p>{{ (playerWeight / 1000).toFixed(1) }} / {{ (maxWeight / 1000).toFixed(1) }}</p>
-                            </div>
+                            </div> -->
                         </div>
-                        <div class="weight-bar">
+                        <!-- <div class="weight-bar">
                             <div class="weight-bar-fill" :style="{ width: Math.min((playerWeight / maxWeight) * 100, 100) + '%' }" :class="weightBarClass"></div>
-                        </div>
+                        </div> -->
                     </div>
                     <div class="inventory-grid">
                         <div class="item-grid">
@@ -80,13 +80,13 @@
                             <div class="inventory-label">
                                 <p>{{ otherInventoryLabel }}</p>
                             </div>
-                            <div class="current-weight">
+                            <!-- <div class="current-weight">
                                 <p>{{ (otherInventoryWeight / 1000).toFixed(1) }} / {{(otherInventoryMaxWeight / 1000).toFixed(1) }}</p>
-                            </div>
+                            </div> -->
                         </div>
-                        <div class="weight-bar">
+                        <!-- <div class="weight-bar">
                             <div class="weight-bar-fill" :style="{ width: Math.min((otherInventoryWeight / otherInventoryMaxWeight) * 100, 100) + '%' }" :class="otherWeightBarClass"></div>
-                        </div>
+                        </div> -->
                     </div>
                     <div class="inventory-grid">
                         <div class="item-grid">
@@ -207,17 +207,17 @@
                         <li @click="giveItem(contextMenuItem, 'all')">All</li>
                     </ul>
                 </li>
-                <li @mouseover="showSubmenu = true" @mouseleave="showSubmenu = false">
+                <!-- <li @mouseover="showSubmenu = true" @mouseleave="showSubmenu = false">
                     Drop
                     <ul v-if="showSubmenu" class="submenu">
                         <li @click="dropItem(contextMenuItem, 1)">Single</li>
                         <li @click="dropItem(contextMenuItem, 'half')">Half</li>
                         <li @click="dropItem(contextMenuItem, 'all')">All</li>
                     </ul>
-                </li>
-                <li @click="splitAndPlaceItem(contextMenuItem, 'player')">Split</li>
+                </li> -->
+                <!-- <li @click="splitAndPlaceItem(contextMenuItem, 'player')">Split</li>
                 <li v-if="contextMenuItem.name.includes('weapon_')" @click="copySerial(contextMenuItem)">Copy Serial</li>
-                <li v-if="contextMenuItem.name.includes('weapon_')" @click="openWeaponAttachments(contextMenuItem)">Attachments</li>
+                <li v-if="contextMenuItem.name.includes('weapon_')" @click="openWeaponAttachments(contextMenuItem)">Attachments</li> -->
             </ul>
         </div>
     </body>
