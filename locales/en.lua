@@ -1,0 +1,67 @@
+local Translations = {
+    progress = {
+        ['snowballs'] = 'Collecting snowballs..',
+    },
+    notify = {
+        ['failed'] = 'Failed',
+        ['canceled'] = 'Canceled',
+        ['vlocked'] = 'Vehicle Locked',
+        ['notowned'] = 'You do not own this item!',
+        ['missitem'] = 'You don\'t have this item!',
+        ['nonb'] = 'No one nearby!',
+        ['noaccess'] = 'Not Accessible',
+        ['nosell'] = 'You can\'t sell this item..',
+        ['itemexist'] = 'Item doesn\'t exist',
+        ['notencash'] = 'You don\'t have enough cash..',
+        ['noitem'] = 'You don\'t have the right items..',
+        ['gsitem'] = 'You can\'t give yourself an item?',
+        ['tftgitem'] = 'You are too far away to give items!',
+        ['infound'] = 'Item you tried giving not found!',
+        ['iifound'] = 'Incorrect item found try again!',
+        ['gitemrec'] = 'You Received ',
+        ['gitemfrom'] = ' From ',
+        ['gitemyg'] = 'You gave ',
+        ['gitinvfull'] = 'The other players inventory is full!',
+        ['giymif'] = 'Your inventory is full!',
+        ['gitydhei'] = 'You do not have enough of the item',
+        ['gitydhitt'] = 'You do not have enough items to transfer',
+        ['navt'] = 'Not a valid type..',
+        ['anfoc'] = 'Arguments not filled out correctly..',
+        ['yhg'] = 'You Have Given ',
+        ['cgitem'] = 'Can\'t give item!',
+        ['idne'] = 'Item Does Not Exist',
+        ['pdne'] = 'Player Is Not Online',
+        -- addedforGive
+        ['cannot_give_now'] = 'You cannot give items right now.',
+        ['target_not_online'] = 'Target player is not online.',
+        ['cannot_give_self'] = 'You cannot give items to yourself.',
+        ['target_cannot_receive'] = 'Target cannot receive items right now.',
+        ['too_far_to_give'] = 'Target is too far away.',
+        ['you_dont_have_enough'] = 'You do not have enough of that item or it is missing.',
+        ['target_inventory_full'] = "Target's inventory is full or cannot accept this item (%{reason}).",
+        ['inventory_full_giver_tried'] = "%{giver} tried to give you items, but your inventory is full.",
+        ['you_gave_item'] = "You gave %{amount}x %{item} to %{target}.",
+        ['received_item_from'] = "You received %{amount}x %{item} from %{giver}.",
+        ['failed_to_give_target_add_fail'] = "Failed to give item: target could not receive it.",
+        ['failed_to_remove_for_give'] = "Failed to give item: could not take from your inventory.",
+    },
+    inf_mapping = {
+        ['opn_inv'] = 'Open Inventory',
+        ['tog_slots'] = 'Toggles keybind slots',
+        ['use_item'] = 'Uses the item in slot ',
+    },
+    menu = {
+        ['vending'] = 'Vending Machine',
+        ['bin'] = 'Open Dumpster',
+        ['craft'] = 'Craft',
+        ['o_bag'] = 'Open Bag',
+    },
+    interaction = {
+        ['craft'] = '~g~E~w~ - Craft',
+    },
+}
+
+Lang = Lang or Locale:new({
+    phrases = Translations,
+    warnOnMissing = true
+})

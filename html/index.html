@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>QB Inventory</title>
+        <link rel="stylesheet" href="main.css" />
+        <link rel="stylesheet" href="https://unpkg.com/floating-vue@5.2.2/dist/style.css" />
+        <script src="https://kit.fontawesome.com/d37231be1f.js" crossorigin="anonymous"></script>
+        <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@floating-ui/core@1.6.0"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.6.1"></script>
+        <script src="https://unpkg.com/floating-vue@5.2.2/dist/floating-vue.umd.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.2/axios.min.js"></script>
+        <script src="app.js" defer></script>
+    </head>
+    <body>
+        <div id="app">
+            <div class="inventory-container" v-if="isInventoryOpen" @mousemove="drag" @mouseup="endDrag" @mousedown="containerMouseDownAction">
+                <div class="inventory-section player-inventory-section" :class="{ 'centered-inventory-section': shouldCenterInventory }">
+                    <div class="inventory-header">
+                        <div class="labels-container">
+                            <div class="inventory-label">
+                                <p>{{ inventoryLabel }}</p>
+                            </div>
+                            <div class="current-weight">
+                                <p>{{ (playerWeight / 1000).toFixed(1) }} / {{ (maxWeight / 1000).toFixed(1) }}</p>
+                            </div>
+                        </div>
+                        <div class="weight-bar">
+                            <div class="weight-bar-fill" :style="{ width: Math.min((playerWeight / maxWeight) * 100, 100) + '%' }" :class="weightBarClass"></div>
+                        </div>
+                    </div>
+                    <div class="inventory-grid">
+                        <div class="item-grid">
+                            <div v-for="slot in totalSlots" :key="slot" class="item-slot" :data-slot="slot" :class="{ 'invalid-slot-highlight': errorSlot === slot }" @dblclick="getItemInSlot(slot, 'player') && useItem(getItemInSlot(slot, 'player'))" @mousedown="event => handleMouseDown(event, slot, 'player')">
+                                <div class="item-slot-key" v-if="slot <= 5">
+                                    <p>{{ slot }}</p>
+                                </div>
+                                <div class="item-slot-img" v-if="getItemInSlot(slot, 'player')" v-tooltip.right-end="{content: generateTooltipContent(getItemInSlot(slot, 'player')), html: true}">
+                                    <img :src="'images/' + getItemInSlot(slot, 'player').image" alt="" />
+                                </div>
+                                <div class="item-slot-amount" v-if="getItemInSlot(slot, 'player')">
+                                    <p>x{{ getItemInSlot(slot, 'player').amount }}</p>
+                                </div>
+                                <div class="item-slot-durability" v-if="getItemInSlot(slot, 'player')">
+                                    <div
+                                        class="item-slot-durability-fill"
+                                        v-if="getItemInSlot(slot, 'player').info && 'quality' in getItemInSlot(slot, 'player').info"
+                                        :style="{ width: (getItemInSlot(slot, 'player').info.quality / 100) * 100 + '%' }"
+                                        :class="{
+                                            'high': getItemInSlot(slot, 'player').info.quality > 75,
+                                            'medium': getItemInSlot(slot, 'player').info.quality <= 75 && getItemInSlot(slot, 'player').info.quality > 25,
+                                            'low': getItemInSlot(slot, 'player').info.quality <= 25
+                                        }"
+                                    ></div>
+                                    <div class="item-slot-durability-fill" v-else style="width: 0%"></div>
+                                </div>
+                                <!-- If you want to show item labels, uncomment the following line -->
+                                <div class="item-slot-label" v-if="getItemInSlot(slot, 'player')">
+                                    <p>{{ getItemInSlot(slot, 'player').label }}</p>
+                                </div>
+                                <!-- If you want to show item labels, uncomment the following line -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-container" v-if="!isOtherInventoryEmpty">
+                    <div class="input-wrapper">
+                        <input type="number" v-model="transferAmount" min="1" :placeholder="transferAmount === null ? 'amount' : ''" />
+                        <button @click="clearTransferAmount" class="clear-button">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Other Inventory Section -->
+                <div class="inventory-section other-inventory-section" v-if="!isOtherInventoryEmpty">
+                    <div class="inventory-header">
+                        <div class="labels-container">
+                            <div class="inventory-label">
+                                <p>{{ otherInventoryLabel }}</p>
+                            </div>
+                            <div class="current-weight">
+                                <p>{{ (otherInventoryWeight / 1000).toFixed(1) }} / {{(otherInventoryMaxWeight / 1000).toFixed(1) }}</p>
+                            </div>
+                        </div>
+                        <div class="weight-bar">
+                            <div class="weight-bar-fill" :style="{ width: Math.min((otherInventoryWeight / otherInventoryMaxWeight) * 100, 100) + '%' }" :class="otherWeightBarClass"></div>
+                        </div>
+                    </div>
+                    <div class="inventory-grid">
+                        <div class="item-grid">
+                            <div v-for="slot in otherInventorySlots" :key="slot" class="item-slot" :data-slot="slot" @mousedown="event => handleMouseDown(event, slot, 'other')" @dragover.prevent>
+                                <div class="item-slot-img" v-if="getItemInSlot(slot, 'other')" v-tooltip.right-end="{content: generateTooltipContent(getItemInSlot(slot, 'other')), html: true}">
+                                    <img :src="'images/' + getItemInSlot(slot, 'other').image" alt="" />
+                                </div>
+                                <div class="item-slot-amount" v-if="getItemInSlot(slot, 'other')">
+                                    <p>x{{ getItemInSlot(slot, 'other').amount }}</p>
+                                </div>
+                                <div v-if="isShopInventory && getItemInSlot(slot, 'other')" class="item-price">
+                                    <p>${{ getItemInSlot(slot, 'other').price }}</p>
+                                </div>
+                                <div class="item-slot-durability" v-if="getItemInSlot(slot, 'other')">
+                                    <div
+                                        class="item-slot-durability-fill"
+                                        v-if="getItemInSlot(slot, 'other').info && 'quality' in getItemInSlot(slot, 'other').info"
+                                        :style="{ width: (getItemInSlot(slot, 'other').info.quality / 100) * 100 + '%' }"
+                                        :class="{
+                                            'high': getItemInSlot(slot, 'other').info.quality > 75,
+                                            'medium': getItemInSlot(slot, 'other').info.quality <= 75 && getItemInSlot(slot, 'other').info.quality > 25,
+                                            'low': getItemInSlot(slot, 'other').info.quality <= 25
+                                        }"
+                                    ></div>
+                                    <div class="item-slot-durability-fill" v-else style="width: 0%"></div>
+                                </div>
+                                <!-- If you want to show item labels, uncomment the following line -->
+                                <div class="item-slot-label" v-if="getItemInSlot(slot, 'other')">
+                                    <p>{{ getItemInSlot(slot, 'other').label }}</p>
+                                </div>
+                                <!-- If you want to show item labels, uncomment the following line -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="hotbar-container" v-if="showHotbar">
+                <div class="hotbar">
+                    <div v-for="slot in 5" :key="slot" class="item-slot">
+                        <div class="item-slot-key">
+                            <p>{{ slot }}</p>
+                        </div>
+                        <div class="item-slot-img" v-if="getHotbarItemInSlot(slot)">
+                            <img :src="'images/' + getHotbarItemInSlot(slot).image" alt="" />
+                        </div>
+                        <div class="item-slot-amount" v-if="getHotbarItemInSlot(slot)">
+                            <p>x{{ getHotbarItemInSlot(slot).amount }}</p>
+                        </div>
+                        <div class="item-slot-durability" v-if="getHotbarItemInSlot(slot)">
+                            <div
+                                class="item-slot-durability-fill"
+                                v-if="getHotbarItemInSlot(slot).info && 'quality' in getHotbarItemInSlot(slot).info"
+                                :style="{ width: (getHotbarItemInSlot(slot).info.quality / 100) * 100 + '%' }"
+                                :class="{
+                                     'high': getHotbarItemInSlot(slot).info.quality > 75,
+                                     'medium': getHotbarItemInSlot(slot).info.quality <= 75 && getHotbarItemInSlot(slot).info.quality > 25,
+                                     'low': getHotbarItemInSlot(slot).info.quality <= 25
+                                 }"
+                            ></div>
+                            <div class="item-slot-durability-fill" v-else style="width: 0%"></div>
+                        </div>
+                        <div class="item-slot-label" v-if="getHotbarItemInSlot(slot)">
+                            <p>{{ getHotbarItemInSlot(slot).label }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="notification-container" v-if="showNotification">
+                <div class="notification-slot">
+                    <div class="notification-title">
+                        <p>{{ notificationType }}</p>
+                    </div>
+                    <div class="item-slot-img">
+                        <img :src="notificationImage" alt="" />
+                    </div>
+                    <div class="item-slot-amount">
+                        <p>x{{ notificationAmount }}</p>
+                    </div>
+                    <div class="item-slot-label">
+                        <p>{{ notificationText }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="required-item-container" v-if="showRequiredItems">
+                <div class="required-item">
+                    <div v-for="(item, index) in requiredItems" :key="index" class="item-slot">
+                        <div class="item-slot-img">
+                            <img :src="'images/' + item.image" alt="" />
+                        </div>
+                        <div class="item-slot-label">
+                            <p>{{ item.label }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="weapon-attachments" v-if="showWeaponAttachments">
+                <img class="weapon" :src="'images/' + selectedWeapon.image" alt="" />
+                <div class="attachment-slot" v-for="(attachment, i) in selectedWeaponAttachments" :key="i" @click="removeAttachment(attachment)">
+                    <img :src="'images/' + attachment.attachment + '.png'" alt="" />
+                </div>
+            </div>
+            <div v-if="draggedItem" class="item-slot" :class="{ 'dragged-item': draggedItem }" :style="{ top: dragY + 'px', left: dragX + 'px' }">
+                <div class="item-slot-img">
+                    <img :src="'images/' + draggedItem.image" alt="" />
+                </div>
+                <div class="item-slot-amount">
+                    <p>x{{ draggedItem.amount }}</p>
+                </div>
+                <div class="item-slot-label">
+                    <p>{{ draggedItem.label }}</p>
+                </div>
+            </div>
+            <ul v-if="showContextMenu" class="context-menu" :style="{ top: contextMenuPosition.top, left: contextMenuPosition.left }">
+                <li v-if="contextMenuItem.useable" @click="useItem(contextMenuItem)">Use</li>
+                <li @click="initiateGiveItemProcess(contextMenuItem)">Give</li>
+                    
+                <li @click="initiateItemRemovalProcess(contextMenuItem)">Remove</li>
+                <!-- <li @click="splitAndPlaceItem(contextMenuItem, 'player')">Split</li> -->
+                <li v-if="contextMenuItem.name.includes('weapon_')" @click="copySerial(contextMenuItem)">Copy Serial</li>
+                <li v-if="contextMenuItem.name.includes('weapon_')" @click="openWeaponAttachments(contextMenuItem)">Attachments</li>
+            </ul>
+            <!-- popup giveitem quantity-->
+             <div class="custom-modal-backdrop" v-if="showGiveItemModal" @click.self="cancelGiveItemAction"> <div class="custom-modal">
+                    <h4>Give Item: {{ itemToGive ? itemToGive.label : '' }}</h4>
+                    <p v-if="giveItemError" class="modal-error">{{ giveItemError }}</p>
+                    
+                    <div class="modal-input-label">Target Player ID:</div>
+                    <input type="number" class="modal-input" v-model="giveTargetPlayerId" placeholder="Enter Player ID">
+                    
+                    <div class="modal-input-label">Quantity (1-{{ itemToGive ? itemToGive.amount : 'N/A' }}):</div>
+                    <div class="modal-input-container-relative">
+                        <input 
+                            type="number" 
+                            class="modal-input modal-input-with-suffix" 
+                            v-model="giveQuantityString"
+                            :max="itemToGive ? itemToGive.amount : 1" 
+                            min="1"
+                            :placeholder="`Amount (1-${itemToGive ? itemToGive.amount : 'Max'})`"
+                            @keyup.enter="submitGiveItem">
+                        <span class="input-max-button" @click="setMaxGiveQuantity"
+                              v-if="itemToGive && itemToGive.amount > 0">Max</span>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button class="modal-button primary" @click="submitGiveItem">Give</button>
+                        <button class="modal-button secondary" @click="cancelGiveItemAction">Cancel</button>
+                    </div>
+                </div>
+            </div>
+            <!-- popup remove quantity-->
+            <div class="custom-modal-backdrop" v-if="showQuantityInputModal" @click.self="cancelRemoveAction">
+                <div class="custom-modal">
+                    <h4>Remove Item: {{ itemForRemovalAction ? itemForRemovalAction.label : '' }}</h4>
+                    <p v-if="quantityError" class="modal-error" style="text-align: center; margin-bottom: 10px;">{{ quantityError }}</p>
+                    
+                    <div class="modal-input-container-relative"> 
+                        <input 
+                            type="number" 
+                            class="modal-input modal-input-with-suffix" 
+                            v-model="inputQuantityString" 
+                            @keyup.enter="submitQuantityToRemove" 
+                            :max="itemForRemovalAction ? itemForRemovalAction.amount : 1" 
+                            min="1"
+                            :placeholder="`Amount (1-${itemForRemovalAction ? itemForRemovalAction.amount : 'Max'})`">
+                        <span class="input-max-button" @click="setMaxQuantityToRemove" 
+                              v-if="itemForRemovalAction && itemForRemovalAction.amount > 0">Max</span>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button class="modal-button primary" @click="submitQuantityToRemove">OK</button>
+                        <button class="modal-button secondary" @click="cancelRemoveAction">Cancel</button>
+                    </div>
+                </div>
+            </div>
+            <!-- popup remove quantity-->
+            <!-- popup remove confirm-->
+            <div class="custom-modal-backdrop" v-if="showConfirmRemoveModal" @click.self="cancelRemoveAction"> <div class="custom-modal">
+                    <h4>Confirm Removal</h4>
+                    <p>Are you sure you want to remove {{ quantityForRemovalAction }}x {{ itemForRemovalAction ? itemForRemovalAction.label : '' }}?</p>
+                    <div class="modal-actions">
+                        <button class="modal-button error" @click="confirmFinalItemRemoval">Confirm Remove</button>
+                        <button class="modal-button secondary" @click="cancelRemoveAction">Cancel</button>
+                    </div>
+                </div>
+            </div>
+            <!-- popup remove confirm-->
+        </div> 
+    </body>
+</html>
+        </div>
+    </body>
+</html>
