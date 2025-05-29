@@ -117,28 +117,20 @@ RegisterCommand('inventory', function(source)
     local QBPlayer = QBCore.Functions.GetPlayer(source)
     if not QBPlayer then return end
     if not QBPlayer or QBPlayer.PlayerData.metadata['isdead'] or QBPlayer.PlayerData.metadata['inlaststand'] or QBPlayer.PlayerData.metadata['ishandcuffed'] then return end
-    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventoryIdentity, class)
-        if not inventoryIdentity then return OpenInventory(source) end -- Open player inventory
-
-        local vehicleConfig = VehicleStorage[class] or VehicleStorage.default
-        local inventoryData = {}
-
-        if inventoryIdentity:find('trunk-') then
-            inventoryData = {
-                slots = vehicleConfig.trunkSlots,
-                maxweight = vehicleConfig.trunkWeight, -- Will be very high
-                maxTotalItems = vehicleConfig.trunkMaxTotalItems -- <<< NEW
-            }
-        elseif inventoryIdentity:find('glovebox-') then
-            inventoryData = {
-                slots = vehicleConfig.gloveboxSlots,
-                maxweight = vehicleConfig.gloveboxWeight, -- Will be very high
-                maxTotalItems = vehicleConfig.gloveboxMaxTotalItems -- <<< NEW
-            }
-        else
-            -- Fallback or error if inventoryIdentity is not recognized for vehicle
-            return OpenInventory(source)
+    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventory, class)
+        if not inventory then return OpenInventory(source) end
+        if inventory:find('trunk-') then
+            OpenInventory(source, inventory, {
+                slots = VehicleStorage[class] and VehicleStorage[class].trunkSlots or VehicleStorage.default.slots,
+                maxweight = VehicleStorage[class] and VehicleStorage[class].trunkWeight or VehicleStorage.default.maxWeight
+            })
+            return
+        elseif inventory:find('glovebox-') then
+            OpenInventory(source, inventory, {
+                slots = VehicleStorage[class] and VehicleStorage[class].gloveboxSlots or VehicleStorage.default.slots,
+                maxweight = VehicleStorage[class] and VehicleStorage[class].gloveboxWeight or VehicleStorage.default.maxWeight
+            })
+            return
         end
-        OpenInventory(source, inventoryIdentity, inventoryData) -- Pass new data
     end)
 end, false)

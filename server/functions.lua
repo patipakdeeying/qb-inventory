@@ -5,9 +5,8 @@ local function InitializeInventory(inventoryId, data)
         items = {},
         isOpen = false,
         label = data and data.label or inventoryId,
-        maxweight = data and data.maxweight or Config.StashSize.maxweight, -- or vehicle specific from data
-        slots = data and data.slots or Config.StashSize.slots,           -- or vehicle specific from data
-        maxTotalItems = data and data.maxTotalItems or nil -- <<< NEW
+        maxweight = data and data.maxweight or Config.StashSize.maxweight,
+        slots = data and data.slots or Config.StashSize.slots
     }
     return Inventories[inventoryId]
 end
@@ -47,52 +46,6 @@ local function SetupShopItems(shopItems)
         end
     end
     return items
-end
-
--- playerinv part
-local function GetItemMaxStack(itemName, itemSharedData)
-    local configuredMax = Config.ItemMaxStacks and Config.ItemMaxStacks[itemName:lower()]
-    if configuredMax then
-        return configuredMax
-    end
-    if itemSharedData.unique then
-        return 1
-    end
-    return Config.DefaultMaxStack or 1 -- Default to 1 if DefaultMaxStack isn't set
-end
-
-local function FindExistingStackableSlot(items, itemName)
-    if not items then return nil end
-    itemName = itemName:lower()
-    for slot, itemData in pairs(items) do
-        if itemData and itemData.name:lower() == itemName then
-            return tonumber(slot)
-        end
-    end
-    return nil
-end
-
-local function GetFirstFreeSlotFrom(items, maxSlots, startingSlot)
-    startingSlot = startingSlot or 1
-    for i = startingSlot, maxSlots do
-        if items[i] == nil then
-            return i
-        end
-    end
-    return nil
-end
-
--- trunk and glovebox part
-local function GetCurrentTotalItemQuantity(items)
-    local totalQuantity = 0
-    if items then
-        for _, itemData in pairs(items) do
-            if itemData and itemData.amount then
-                totalQuantity = totalQuantity + itemData.amount
-            end
-        end
-    end
-    return totalQuantity
 end
 
 -- Exported Functions
@@ -407,112 +360,40 @@ exports('GetItemCount', GetItemCount)
 --- @param amount number The amount of the item.
 --- @return boolean - Returns true if the item can be added, false otherwise.
 --- @return string|nil - Returns a string indicating the reason why the item cannot be added (e.g., 'weight' or 'slots'), or nil if it can be added.
-function CanAddItem(identifier, itemName, amount)
-    local itemData = QBCore.Shared.Items[itemName:lower()]
-    if not itemData then
-        print('CanAddItem: Invalid item - ' .. itemName)
-        return false, 'invalid_item'
-    end
-
+function CanAddItem(identifier, item, amount)
     local Player = QBCore.Functions.GetPlayer(identifier)
-    local items, inventoryMaxSlots, inventoryWeightConfig, isPlayerInventory
-    local invMaxTotalItems, isVehicleInv
 
+    local itemData = QBCore.Shared.Items[item:lower()]
+    if not itemData then return false end
+
+    local inventory, items
     if Player then
+        inventory = {
+            maxweight = Config.MaxWeight,
+            slots = Config.MaxSlots
+        }
         items = Player.PlayerData.items
-        inventoryMaxSlots = Config.MaxSlots
-        inventoryWeightConfig = Config.MaxWeight
-        isPlayerInventory = true
-        isVehicleInv = false
     elseif Inventories[identifier] then
-        local inv = Inventories[identifier]
-        items = inv.items
-        inventoryMaxSlots = inv.slots
-        inventoryWeightConfig = inv.maxweight
-        invMaxTotalItems = inv.maxTotalItems
-        isPlayerInventory = false
-        isVehicleInv = (identifier:find('trunk-') or identifier:find('glovebox-')) and true or false
-    elseif Drops[identifier] then
-        items = Drops[identifier].items
-        inventoryMaxSlots = Drops[identifier].slots
-        inventoryWeightConfig = Drops[identifier].maxweight
-        invMaxTotalItems = Drops[identifier].maxTotalItems
-        isPlayerInventory = false
-        isVehicleInv = false
-    else
-        print('CanAddItem: Inventory not found for id - ' .. identifier)
-        return false, 'inventory_not_found'
+        inventory = Inventories[identifier]
+        items = Inventories[identifier].items
     end
 
-    local itemConfigMaxStack = GetItemMaxStack(itemName, itemData)
-    amount = tonumber(amount) or 1
-
-    -- 1. Slot Availability & Item-Specific Stack Checks
-    local slotsUsed = 0
-    for _ in pairs(items) do slotsUsed = slotsUsed + 1 end
-    local existingSlotForItem = FindExistingStackableSlot(items, itemName)
-
-    if isVehicleInv then
-        -- VEHICLE INVENTORY LOGIC (One slot per stackable item type)
-        if itemData.unique then
-            if not existingSlotForItem and slotsUsed >= inventoryMaxSlots then -- Unique items always need a new slot if not already present (e.g. specific weapon serial)
-                return false, 'vehicle_slots_full_unique'
-            end
-        else -- Stackable item in vehicle
-            if not existingSlotForItem and slotsUsed >= inventoryMaxSlots then
-                -- Needs a new slot for this new item type, but no slots are free
-                return false, 'vehicle_slots_full_new_stackable'
-            end
-            -- If existingSlotForItem is found, slot check is okay for stacking.
-            -- If not existingSlotForItem and slotsUsed < inventoryMaxSlots, a slot is available for new type.
-        end
-    elseif isPlayerInventory then
-        -- PLAYER INVENTORY LOGIC
-        if itemData.unique then
-            if not existingSlotForItem and slotsUsed >= inventoryMaxSlots then
-                return false, 'player_slots_full_unique'
-            end
-        else -- Stackable item in player inventory
-            if existingSlotForItem then
-                if items[existingSlotForItem].amount + amount > itemConfigMaxStack then
-                    return false, 'player_item_stack_full'
-                end
-            else
-                local startSearchSlot = 6
-                if not GetFirstFreeSlotFrom(items, inventoryMaxSlots, startSearchSlot) and slotsUsed >= inventoryMaxSlots then
-                    return false, 'player_main_slots_full_new_stackable'
-                end
-            end
-        end
-    else -- Generic Stash/Drop Logic
-        if itemData.unique then
-            if not existingSlotForItem and slotsUsed >= inventoryMaxSlots then return false, 'generic_slots_full_unique' end
-        else -- Stackable
-            if existingSlotForItem then
-                if items[existingSlotForItem].amount + amount > itemConfigMaxStack then
-                    return false, 'generic_item_stack_full'
-                end
-            else
-                if slotsUsed >= inventoryMaxSlots then return false, 'generic_slots_full_new_stackable' end
-            end
-        end
+    if not inventory then
+        print('CanAddItem: Inventory not found')
+        return false
     end
 
-    -- 2. Vehicle MaxTotalItems Check
-    if isVehicleInv and invMaxTotalItems then
-        local currentTotalQuantity = GetCurrentTotalItemQuantity(items)
-        if currentTotalQuantity + amount > invMaxTotalItems then
-            return false, 'max_total_items_exceeded_vehicle'
-        end
+    local weight = itemData.weight * amount
+    local totalWeight = GetTotalWeight(items) + weight
+    if totalWeight > inventory.maxweight then
+        return false, 'weight'
     end
 
-    -- 3. Weight Check
-    local currentTotalWeight = GetTotalWeight(items)
-    if currentTotalWeight + (itemData.weight * amount) > inventoryWeightConfig then
-        print('CanAddItem: Exceeds max weight for ' .. itemName .. ' in ' .. identifier)
-        return false, 'weight_limit_exceeded'
-    end
+    local slotsUsed, _ = GetSlots(identifier)
 
+    if slotsUsed >= inventory.slots then
+        return false, 'slots'
+    end
     return true
 end
 
@@ -744,16 +625,6 @@ function OpenInventory(source, identifier, data)
     inventory.maxweight = (data and data.maxweight) or (inventory and inventory.maxweight) or Config.StashSize.maxweight
     inventory.slots = (data and data.slots) or (inventory and inventory.slots) or Config.StashSize.slots
     inventory.label = (data and data.label) or (inventory and inventory.label) or identifier
-    
-    -- vvv NEW vvv
-    if identifier and (identifier:find('trunk-') or identifier:find('glovebox-')) then
-        inventory.maxTotalItems = (data and data.maxTotalItems) -- Get from passed data
-    else
-        -- For other inventory types, this won't apply unless you define it for them too
-        inventory.maxTotalItems = nil
-    end
-    -- ^^^ NEW ^^^
-
     inventory.isOpen = source
 
     local formattedInventory = {
@@ -806,266 +677,105 @@ exports('RemoveInventory', RemoveInventory)
 --- @param info table (optional) Additional information about the item.
 --- @param reason string (optional) The reason for adding the item.
 --- @return boolean Returns true if the item was successfully added, false otherwise.
-function AddItem(identifier, itemName, amount, slot, info, reason)
-    local itemData = QBCore.Shared.Items[itemName:lower()]
-    if not itemData then
-        print('AddItem: Invalid item - ' .. itemName)
+function AddItem(identifier, item, amount, slot, info, reason)
+    local itemInfo = QBCore.Shared.Items[item:lower()]
+    if not itemInfo then
+        print('AddItem: Invalid item')
         return false
     end
-
-    -- itemMaxStack is determined differently based on inventory type later
-    -- local itemOriginalMaxStack = GetItemMaxStack(itemName, itemData) -- Max stack from config
-
+    local inventory, inventoryWeight, inventorySlots
     local player = QBCore.Functions.GetPlayer(identifier)
-    local inventory, invWeightConfig, invSlots, invNameForLog, invMaxTotalItems -- For vehicles
-    local isPlayerInventory, isVehicleInventory = false, false
 
-    if player and player.PlayerData and player.PlayerData.source then
+    if player then
         inventory = player.PlayerData.items
-        invWeightConfig = Config.MaxWeight
-        invSlots = Config.MaxSlots
-        invNameForLog = GetPlayerName(player.PlayerData.source) .. ' (ID: ' .. player.PlayerData.source .. ', Char: ' .. player.PlayerData.citizenid ..')'
-        isPlayerInventory = true
+        inventoryWeight = Config.MaxWeight
+        inventorySlots = Config.MaxSlots
     elseif Inventories[identifier] then
-        local invInstance = Inventories[identifier]
-        inventory = invInstance.items
-        invWeightConfig = invInstance.maxweight
-        invSlots = invInstance.slots
-        invMaxTotalItems = invInstance.maxTotalItems -- Loaded by OpenInventory
-        invNameForLog = identifier
-        isVehicleInventory = (identifier:find('trunk-') or identifier:find('glovebox-')) and true or false
+        inventory = Inventories[identifier].items
+        inventoryWeight = Inventories[identifier].maxweight
+        inventorySlots = Inventories[identifier].slots
     elseif Drops[identifier] then
-        local invInstance = Drops[identifier]
-        inventory = invInstance.items
-        invWeightConfig = invInstance.maxweight
-        invSlots = invInstance.slots
-        invMaxTotalItems = invInstance.maxTotalItems -- Assuming drops might also have this
-        invNameForLog = identifier
-        isVehicleInventory = false -- Assuming drops are not vehicle inventories for this specific logic
-    else
-        print('AddItem: Inventory not found for - ' .. identifier)
+        inventory = Drops[identifier].items
+        inventoryWeight = Drops[identifier].maxweight
+        inventorySlots = Drops[identifier].slots
+    end
+
+    if not inventory then
+        print('AddItem: Inventory not found')
         return false
     end
 
-    local originalAmountToProcess = tonumber(amount) or 1
-    local amountRemaining = originalAmountToProcess
-    local amountSuccessfullyProcessed = 0
-    local determinedTargetSlot = slot -- Use the provided slot if any, otherwise it will be determined.
-    local notifiedAboutPartialAdd = false
-
-    -- Pre-CanAddItem check (using the refined CanAddItem)
-    local canAddPreliminary, canAddReason = CanAddItem(identifier, itemName, amountRemaining)
-    if not canAddPreliminary then
-        print("AddItem: Pre-check CanAddItem failed for "..itemName.." in "..invNameForLog..". Reason: ".. (canAddReason or 'Unknown'))
-        if isPlayerInventory and player then TriggerClientEvent('QBCore:Notify', player.PlayerData.source, "Cannot add " .. itemData.label .. ": " .. (canAddReason or "Limit reached"), "error") end
+    local totalWeight = GetTotalWeight(inventory)
+    if totalWeight + (itemInfo.weight * amount) > inventoryWeight then
+        print('AddItem: Not enough weight available')
         return false
     end
 
-    -- Vehicle Inventory: Adjust amountRemaining based on invMaxTotalItems IF it's a new addition (not just stacking to existing)
-    -- The CanAddItem already checked if the *total* amount would exceed. AddItem now determines how much *actually* gets added.
-    if isVehicleInventory and invMaxTotalItems then
-        local currentTotalQuantity = GetCurrentTotalItemQuantity(inventory) -- Helper function
-        local spaceForMoreQuantity = invMaxTotalItems - currentTotalQuantity
-        
-        if amountRemaining > spaceForMoreQuantity then
-            if spaceForMoreQuantity <= 0 then -- No space at all
-                print("AddItem: Vehicle " .. invNameForLog .. " item quantity limit reached (pre-cap). Cannot add " .. itemName)
-                -- Notification for this case might be redundant if CanAddItem catches it,
-                -- but good for direct calls to AddItem.
-                if isPlayerInventory and player and not notifiedAboutPartialAdd then
-                     TriggerClientEvent('QBCore:Notify', player.PlayerData.source, itemData.label .. ": Vehicle storage full.", "error")
-                     notifiedAboutPartialAdd = true
+    amount = tonumber(amount) or 1
+    local updated = false
+
+    if not itemInfo.unique then
+        slot = slot or GetFirstSlotByItem(inventory, item)
+        if slot then
+            for _, invItem in pairs(inventory) do
+                if invItem.slot == slot then
+                    invItem.amount = invItem.amount + amount
+                    updated = true
+                    break
                 end
-                return false -- Cannot add anything if pre-check failed to catch this
-            end
-            amountRemaining = spaceForMoreQuantity -- Cap the amount to add for this operation
-            if originalAmountToProcess > amountRemaining and not notifiedAboutPartialAdd then
-                 print("AddItem: Capped amount for " .. itemName .. " to " .. amountRemaining .. " due to vehicle quantity limit in " .. invNameForLog)
-                 if isPlayerInventory and player then -- Notify if it's a player initiating
-                    TriggerClientEvent('QBCore:Notify', player.PlayerData.source, "Only " .. amountRemaining .. " " .. itemData.label .. "(s) could fit in vehicle.", "warning")
-                 end
-                 notifiedAboutPartialAdd = true
             end
         end
     end
-    
-    if amountRemaining <= 0 and originalAmountToProcess > 0 then -- Capped to zero by vehicle quantity limit
-        print("AddItem: Amount to add for " .. itemName .. " became 0 after specific inventory limit checks for " .. invNameForLog)
-        return false -- Nothing can be added if capped to zero here.
-    end
 
-
-    local itemEffectiveMaxStack -- This will be used for stacking within a slot
-    if isVehicleInventory then
-        -- For vehicles, items stack high in their slot, only limited by overall vehicle quantity.
-        -- The check against invMaxTotalItems already capped amountRemaining.
-        itemEffectiveMaxStack = amountRemaining + (inventory[determinedTargetSlot] and inventory[determinedTargetSlot].amount or 0) + 1 -- effectively very large for a single slot logic
-    else -- Player inventory or other stashes
-        itemEffectiveMaxStack = GetItemMaxStack(itemName, itemData) -- From Config.ItemMaxStacks
-    end
-
-
-    if not itemData.unique then
-        -- STACKABLE ITEMS
-        local actualExistingSlotForItemType = FindExistingStackableSlot(inventory, itemName)
-
-        if isPlayerInventory or (isVehicleInventory and actualExistingSlotForItemType) then
-            -- PLAYER and VEHICLE (if item type already exists): One slot per stackable item type rule applies
-            if actualExistingSlotForItemType then
-                determinedTargetSlot = actualExistingSlotForItemType -- Force to this existing slot
-                local currentAmountInSlot = inventory[determinedTargetSlot].amount
-                local canStackMoreInSlot = itemEffectiveMaxStack - currentAmountInSlot
-                if isVehicleInventory then canStackMoreInSlot = math.huge end -- For vehicle, slot stack is "infinite" internally, only total items matter
-
-                local amountToStackThisIteration = math.min(amountRemaining, canStackMoreInSlot)
-
-                if amountToStackThisIteration > 0 then
-                    inventory[determinedTargetSlot].amount = currentAmountInSlot + amountToStackThisIteration
-                    amountRemaining = amountRemaining - amountToStackThisIteration
-                    amountSuccessfullyProcessed = amountSuccessfullyProcessed + amountToStackThisIteration
-                end
-                if amountRemaining > 0 and isPlayerInventory and player and not notifiedAboutPartialAdd then
-                    TriggerClientEvent('QBCore:Notify', player.PlayerData.source, "Your stack of " .. itemData.label .. " is full. " .. amountRemaining .. " unit(s) were not added.", "warning")
-                    notifiedAboutPartialAdd = true
-                elseif amountRemaining > 0 and isVehicleInventory and not notifiedAboutPartialAdd then
-                     print("AddItem: Vehicle stack for " .. itemName .. " is now full (or item limit hit). Remaining: " .. amountRemaining)
-                     -- Notification for vehicle partial add already handled by invMaxTotalItems capping if that was the cause
-                end
-            else -- New stackable item type for Player or Vehicle (vehicle only if actualExistingSlot was nil)
-                local startSearchSlot = (isPlayerInventory) and 6 or 1 -- Player main inv, Vehicle any free
-                determinedTargetSlot = slot -- Use the drop target slot IF it's empty for this new item type
-                if not determinedTargetSlot or inventory[determinedTargetSlot] ~= nil then
-                    determinedTargetSlot = GetFirstFreeSlotFrom(inventory, invSlots, startSearchSlot)
-                end
-
-                if determinedTargetSlot then
-                    local amountForNewSlot = math.min(amountRemaining, itemEffectiveMaxStack)
-                    if isVehicleInventory then amountForNewSlot = amountRemaining end -- Vehicle slot takes all remaining (already capped by invMaxTotalItems)
-
-                    inventory[determinedTargetSlot] = {
-                        name = itemName, amount = amountForNewSlot, info = info or {}, label = itemData.label,
-                        description = itemData.description or '', weight = itemData.weight, type = itemData.type,
-                        unique = itemData.unique, useable = itemData.useable, image = itemData.image,
-                        shouldClose = itemData.shouldClose, slot = determinedTargetSlot, combinable = itemData.combinable
-                    }
-                    amountRemaining = amountRemaining - amountForNewSlot
-                    amountSuccessfullyProcessed = amountSuccessfullyProcessed + amountForNewSlot
-                    if itemData.type == 'weapon' then
-                        if not inventory[determinedTargetSlot].info.serie then inventory[determinedTargetSlot].info.serie = tostring(QBCore.Shared.RandomInt(2)..QBCore.Shared.RandomStr(3)..QBCore.Shared.RandomInt(1)..QBCore.Shared.RandomStr(2)..QBCore.Shared.RandomInt(3)..QBCore.Shared.RandomStr(4)) end
-                        if not inventory[determinedTargetSlot].info.quality then inventory[determinedTargetSlot].info.quality = 100 end
-                    end
-                else
-                    if isPlayerInventory and player and not notifiedAboutPartialAdd then TriggerClientEvent('QBCore:Notify', player.PlayerData.source, "No free slots for " .. itemData.label .. " in " .. invNameForLog .. ".", "error"); notifiedAboutPartialAdd = true; end
-                end
-            end
-        else -- Generic Stash (allows multiple stacks of same item type, or vehicle if item type is new and no existing stack found)
-             local targetForGenericOrNewVehicleStack = slot
-             if not targetForGenericOrNewVehicleStack or inventory[targetForGenericOrNewVehicleStack] ~= nil and (inventory[targetForGenericOrNewVehicleStack].name:lower() ~= itemName:lower() or itemData.unique) then
-                -- If target slot is occupied by a different item, or no slot provided, find an existing stack or a free one
-                targetForGenericOrNewVehicleStack = FindExistingStackableSlot(inventory, itemName) or GetFirstFreeSlotFrom(inventory, invSlots, 1)
-             end
-             determinedTargetSlot = targetForGenericOrNewVehicleStack
-
-            if determinedTargetSlot then
-                local currentAmountInSlot = 0
-                if inventory[determinedTargetSlot] and inventory[determinedTargetSlot].name:lower() == itemName:lower() then
-                    currentAmountInSlot = inventory[determinedTargetSlot].amount
-                elseif inventory[determinedTargetSlot] ~= nil then -- Target slot is occupied by a different item
-                    print("AddItem: Slot conflict in " .. invNameForLog .. " for " .. itemName .. " at slot " .. determinedTargetSlot .. ". Trying to find another slot.")
-                    determinedTargetSlot = GetFirstFreeSlotFrom(inventory, invSlots, 1) -- Try to find a truly empty slot
-                    currentAmountInSlot = 0 -- Reset for new slot
-                    if not determinedTargetSlot then
-                        print("AddItem: No alternative free slot in " .. invNameForLog .. " for " .. itemData.label)
-                        -- Fall through to finalization, amountSuccessfullyProcessed might be 0
-                    end
-                end
-
-                if determinedTargetSlot then -- Re-check if a valid slot was found
-                    local canStackMoreInSlot = itemEffectiveMaxStack - currentAmountInSlot
-                    local amountToStackThisIteration = math.min(amountRemaining, canStackMoreInSlot)
-
-                    if amountToStackThisIteration > 0 then
-                        if inventory[determinedTargetSlot] and inventory[determinedTargetSlot].name:lower() == itemName:lower() then -- Stacking
-                            inventory[determinedTargetSlot].amount = currentAmountInSlot + amountToStackThisIteration
-                        else -- New slot
-                            inventory[determinedTargetSlot] = {
-                                name = itemName, amount = amountToStackThisIteration, info = info or {}, label = itemData.label,
-                                description = itemData.description or '', weight = itemData.weight, type = itemData.type,
-                                unique = itemData.unique, useable = itemData.useable, image = itemData.image,
-                                shouldClose = itemData.shouldClose, slot = determinedTargetSlot, combinable = itemData.combinable
-                            }
-                            if itemData.type == 'weapon' then
-                                if not inventory[determinedTargetSlot].info.serie then inventory[determinedTargetSlot].info.serie = tostring(QBCore.Shared.RandomInt(2)..QBCore.Shared.RandomStr(3)..QBCore.Shared.RandomInt(1)..QBCore.Shared.RandomStr(2)..QBCore.Shared.RandomInt(3)..QBCore.Shared.RandomStr(4)) end
-                                if not inventory[determinedTargetSlot].info.quality then inventory[determinedTargetSlot].info.quality = 100 end
-                            end
-                        end
-                        amountRemaining = amountRemaining - amountToStackThisIteration
-                        amountSuccessfullyProcessed = amountSuccessfullyProcessed + amountToStackThisIteration
-                    end
-                end
-            else
-                 print("AddItem: No free slots in " .. invNameForLog .. " (generic/drop) for " .. itemData.label)
-            end
-        end
-    else
-        -- UNIQUE ITEM LOGIC (applies to all inventory types similarly)
-        local startSearchSlot = (isPlayerInventory) and 6 or 1
-        determinedTargetSlot = slot -- Use drop target slot for unique item if provided and empty
-        if not determinedTargetSlot or inventory[determinedTargetSlot] ~= nil then
-            determinedTargetSlot = GetFirstFreeSlotFrom(inventory, invSlots, startSearchSlot)
+    if not updated then
+        slot = slot or GetFirstFreeSlot(inventory, inventorySlots)
+        if not slot then
+            print('AddItem: No free slot available')
+            return false
         end
 
-        if determinedTargetSlot and amountRemaining > 0 then -- amountRemaining should be 1 for unique
-            if inventory[determinedTargetSlot] == nil then
-                inventory[determinedTargetSlot] = { name = itemName, amount = 1, info = info or {}, label = itemData.label, description = itemData.description or '', weight = itemData.weight, type = itemData.type, unique = true, useable = itemData.useable, image = itemData.image, shouldClose = itemData.shouldClose, slot = determinedTargetSlot, combinable = itemData.combinable }
-                amountRemaining = amountRemaining - 1
-                amountSuccessfullyProcessed = amountSuccessfullyProcessed + 1
-                if itemData.type == 'weapon' then
-                    if not inventory[determinedTargetSlot].info.serie then inventory[determinedTargetSlot].info.serie = tostring(QBCore.Shared.RandomInt(2)..QBCore.Shared.RandomStr(3)..QBCore.Shared.RandomInt(1)..QBCore.Shared.RandomStr(2)..QBCore.Shared.RandomInt(3)..QBCore.Shared.RandomStr(4)) end
-                    if not inventory[determinedTargetSlot].info.quality then inventory[determinedTargetSlot].info.quality = 100 end
-                end
-            else
-                print("AddItem: Error - Target slot " .. determinedTargetSlot .. " for unique item " .. itemName .. " in " .. invNameForLog .. " was unexpectedly occupied.")
-                if isPlayerInventory and player and not notifiedAboutPartialAdd then TriggerClientEvent('QBCore:Notify', player.PlayerData.source, "Inventory error placing " .. itemData.label .. ".", "error"); notifiedAboutPartialAdd = true; end
+        inventory[slot] = {
+            name = item,
+            amount = amount,
+            info = info or {},
+            label = itemInfo.label,
+            description = itemInfo.description or '',
+            weight = itemInfo.weight,
+            type = itemInfo.type,
+            unique = itemInfo.unique,
+            useable = itemInfo.useable,
+            image = itemInfo.image,
+            shouldClose = itemInfo.shouldClose,
+            slot = slot,
+            combinable = itemInfo.combinable
+        }
+
+        if itemInfo.type == 'weapon' then
+            if not inventory[slot].info.serie then
+                inventory[slot].info.serie = tostring(QBCore.Shared.RandomInt(2) .. QBCore.Shared.RandomStr(3) .. QBCore.Shared.RandomInt(1) .. QBCore.Shared.RandomStr(2) .. QBCore.Shared.RandomInt(3) .. QBCore.Shared.RandomStr(4))
             end
-        else
-            if amountRemaining > 0 and isPlayerInventory and player and not notifiedAboutPartialAdd then TriggerClientEvent('QBCore:Notify', player.PlayerData.source, "No free slots for " .. itemData.label .. " in " .. invNameForLog .. ".", "error"); notifiedAboutPartialAdd = true; end
+            if not inventory[slot].info.quality then
+                inventory[slot].info.quality = 100
+            end
         end
     end
 
-    -- Finalization
-    if amountSuccessfullyProcessed > 0 then
-        if player and player.Functions and player.PlayerData then
-            player.Functions.SetPlayerData('items', inventory)
-        elseif not player and Inventories[identifier] then
-             Inventories[identifier].items = inventory
-        elseif not player and Drops[identifier] then
-             Drops[identifier].items = inventory
-        end
-
-        local addReason = reason or 'No reason specified'
-        TriggerEvent('qb-log:server:CreateLog', 'playerinventory', 'Item Added', 'green', 'Inventory: '..invNameForLog..' Slot: '..(determinedTargetSlot or 'N/A')..' Item: '..itemName..' Amount Added: '..amountSuccessfullyProcessed..' Attempted: '..originalAmountToProcess..' Reason: '..addReason)
-
-        if isPlayerInventory and player and player.PlayerData and player.PlayerData.source then
-            local internalMoveReasons = {["moved item"]=true, ["stacked item"]=true, ["split item"]=true, ["swapped item"]=true}
-            if not internalMoveReasons[addReason] then
-                TriggerClientEvent('qb-inventory:client:ItemBox', player.PlayerData.source, itemData, 'add', amountSuccessfullyProcessed)
-            end
-            if player.state and player.state.inv_busy then
-                TriggerClientEvent('qb-inventory:client:updateInventory', player.PlayerData.source)
-            elseif player.state == nil then
-                 print("AddItem: player.state is nil for player " .. invNameForLog .. " - cannot check inv_busy for UI update.")
-            end
-        end
-        return true
-    else
-        print("AddItem: No items were ultimately processed for " .. itemName .. " in " .. invNameForLog .. ". Original amount: " .. originalAmountToProcess .. ". Reason: " .. (canAddReason or "AddItem internal logic constraint"))
-        if originalAmountToProcess > 0 and isPlayerInventory and player and not notifiedAboutPartialAdd then
-            -- Generic notification if nothing specific was sent and nothing added.
-             TriggerClientEvent('QBCore:Notify', player.PlayerData.source, "Could not add " .. itemData.label .. " to " .. invNameForLog .. ". " .. (canAddReason or ""), "error")
-        end
-        return false
-    end
+    if player then player.Functions.SetPlayerData('items', inventory) end
+    local invName = player and GetPlayerName(identifier) .. ' (' .. identifier .. ')' or identifier
+    local addReason = reason or 'No reason specified'
+    local resourceName = GetInvokingResource() or 'qb-inventory'
+    TriggerEvent(
+        'qb-log:server:CreateLog',
+        'playerinventory',
+        'Item Added',
+        'green',
+        '**Inventory:** ' .. invName .. ' (Slot: ' .. slot .. ')\n' ..
+        '**Item:** ' .. item .. '\n' ..
+        '**Amount:** ' .. amount .. '\n' ..
+        '**Reason:** ' .. addReason .. '\n' ..
+        '**Resource:** ' .. resourceName
+    )
+    return true
 end
 
 exports('AddItem', AddItem)

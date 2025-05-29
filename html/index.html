@@ -56,11 +56,9 @@
                                     ></div>
                                     <div class="item-slot-durability-fill" v-else style="width: 0%"></div>
                                 </div>
-                                <!-- If you want to show item labels, uncomment the following line -->
-                                <div class="item-slot-label" v-if="getItemInSlot(slot, 'player')">
+                                <!-- <div class="item-slot-label" v-if="getItemInSlot(slot, 'player')">
                                     <p>{{ getItemInSlot(slot, 'player').label }}</p>
-                                </div>
-                                <!-- If you want to show item labels, uncomment the following line -->
+                                </div> -->
                             </div>
                         </div>
                     </div>
@@ -115,11 +113,9 @@
                                     ></div>
                                     <div class="item-slot-durability-fill" v-else style="width: 0%"></div>
                                 </div>
-                                <!-- If you want to show item labels, uncomment the following line -->
-                                <div class="item-slot-label" v-if="getItemInSlot(slot, 'other')">
+                                <!-- <div class="item-slot-label" v-if="getItemInSlot(slot, 'other')">
                                     <p>{{ getItemInSlot(slot, 'other').label }}</p>
-                                </div>
-                                <!-- If you want to show item labels, uncomment the following line -->
+                                </div> -->
                             </div>
                         </div>
                     </div>
@@ -203,81 +199,26 @@
             </div>
             <ul v-if="showContextMenu" class="context-menu" :style="{ top: contextMenuPosition.top, left: contextMenuPosition.left }">
                 <li v-if="contextMenuItem.useable" @click="useItem(contextMenuItem)">Use</li>
-                <li @click="initiateGiveItemProcess(contextMenuItem)">Give</li>
-                    
-                <li @click="initiateItemRemovalProcess(contextMenuItem)">Remove</li>
-                <!-- <li @click="splitAndPlaceItem(contextMenuItem, 'player')">Split</li> -->
+                <li @mouseover="showSubmenu = true" @mouseleave="showSubmenu = false">
+                    Give
+                    <ul v-if="showSubmenu" class="submenu">
+                        <li @click="giveItem(contextMenuItem, 1)">Single</li>
+                        <li @click="giveItem(contextMenuItem, 'half')">Half</li>
+                        <li @click="giveItem(contextMenuItem, 'all')">All</li>
+                    </ul>
+                </li>
+                <li @mouseover="showSubmenu = true" @mouseleave="showSubmenu = false">
+                    Drop
+                    <ul v-if="showSubmenu" class="submenu">
+                        <li @click="dropItem(contextMenuItem, 1)">Single</li>
+                        <li @click="dropItem(contextMenuItem, 'half')">Half</li>
+                        <li @click="dropItem(contextMenuItem, 'all')">All</li>
+                    </ul>
+                </li>
+                <li @click="splitAndPlaceItem(contextMenuItem, 'player')">Split</li>
                 <li v-if="contextMenuItem.name.includes('weapon_')" @click="copySerial(contextMenuItem)">Copy Serial</li>
                 <li v-if="contextMenuItem.name.includes('weapon_')" @click="openWeaponAttachments(contextMenuItem)">Attachments</li>
             </ul>
-            <!-- popup giveitem quantity-->
-             <div class="custom-modal-backdrop" v-if="showGiveItemModal" @click.self="cancelGiveItemAction"> <div class="custom-modal">
-                    <h4>Give Item: {{ itemToGive ? itemToGive.label : '' }}</h4>
-                    <p v-if="giveItemError" class="modal-error">{{ giveItemError }}</p>
-                    
-                    <div class="modal-input-label">Target Player ID:</div>
-                    <input type="number" class="modal-input" v-model="giveTargetPlayerId" placeholder="Enter Player ID">
-                    
-                    <div class="modal-input-label">Quantity (1-{{ itemToGive ? itemToGive.amount : 'N/A' }}):</div>
-                    <div class="modal-input-container-relative">
-                        <input 
-                            type="number" 
-                            class="modal-input modal-input-with-suffix" 
-                            v-model="giveQuantityString"
-                            :max="itemToGive ? itemToGive.amount : 1" 
-                            min="1"
-                            :placeholder="`Amount (1-${itemToGive ? itemToGive.amount : 'Max'})`"
-                            @keyup.enter="submitGiveItem">
-                        <span class="input-max-button" @click="setMaxGiveQuantity"
-                              v-if="itemToGive && itemToGive.amount > 0">Max</span>
-                    </div>
-
-                    <div class="modal-actions">
-                        <button class="modal-button primary" @click="submitGiveItem">Give</button>
-                        <button class="modal-button secondary" @click="cancelGiveItemAction">Cancel</button>
-                    </div>
-                </div>
-            </div>
-            <!-- popup remove quantity-->
-            <div class="custom-modal-backdrop" v-if="showQuantityInputModal" @click.self="cancelRemoveAction">
-                <div class="custom-modal">
-                    <h4>Remove Item: {{ itemForRemovalAction ? itemForRemovalAction.label : '' }}</h4>
-                    <p v-if="quantityError" class="modal-error" style="text-align: center; margin-bottom: 10px;">{{ quantityError }}</p>
-                    
-                    <div class="modal-input-container-relative"> 
-                        <input 
-                            type="number" 
-                            class="modal-input modal-input-with-suffix" 
-                            v-model="inputQuantityString" 
-                            @keyup.enter="submitQuantityToRemove" 
-                            :max="itemForRemovalAction ? itemForRemovalAction.amount : 1" 
-                            min="1"
-                            :placeholder="`Amount (1-${itemForRemovalAction ? itemForRemovalAction.amount : 'Max'})`">
-                        <span class="input-max-button" @click="setMaxQuantityToRemove" 
-                              v-if="itemForRemovalAction && itemForRemovalAction.amount > 0">Max</span>
-                    </div>
-
-                    <div class="modal-actions">
-                        <button class="modal-button primary" @click="submitQuantityToRemove">OK</button>
-                        <button class="modal-button secondary" @click="cancelRemoveAction">Cancel</button>
-                    </div>
-                </div>
-            </div>
-            <!-- popup remove quantity-->
-            <!-- popup remove confirm-->
-            <div class="custom-modal-backdrop" v-if="showConfirmRemoveModal" @click.self="cancelRemoveAction"> <div class="custom-modal">
-                    <h4>Confirm Removal</h4>
-                    <p>Are you sure you want to remove {{ quantityForRemovalAction }}x {{ itemForRemovalAction ? itemForRemovalAction.label : '' }}?</p>
-                    <div class="modal-actions">
-                        <button class="modal-button error" @click="confirmFinalItemRemoval">Confirm Remove</button>
-                        <button class="modal-button secondary" @click="cancelRemoveAction">Cancel</button>
-                    </div>
-                </div>
-            </div>
-            <!-- popup remove confirm-->
-        </div> 
-    </body>
-</html>
         </div>
     </body>
 </html>

@@ -1,18 +1,16 @@
--- In qb-inventory/config/config.lua
-
 Config = {
     UseTarget = GetConvar('UseTarget', 'false') == 'true',
 
-    MaxWeight = 999999999, -- Set very high to be non-restrictive
-    MaxSlots = 40,        -- Your primary player inventory slot limit
+    MaxWeight = 120000,
+    MaxSlots = 40,
 
     StashSize = {
-        maxweight = 999999999, -- Set very high
+        maxweight = 2000000,
         slots = 100
     },
 
     DropSize = {
-        maxweight = 999999999, -- Set very high
+        maxweight = 1000000,
         slots = 50
     },
 
@@ -42,17 +40,4 @@ Config = {
         { name = 'kurkakola',    price = 4, amount = 50 },
         { name = 'water_bottle', price = 4, amount = 50 },
     },
-
-    -- NEW CONFIGURATION SECTION FOR ITEM MAX STACKS
-    ItemMaxStacks = {
-        -- item_name = max_stack_amount
-        ['water_bottle'] = 10,
-        ['burger'] = 5,
-        ['medikit'] = 20,
-        ['bandage'] = 20,
-        -- Add other non-unique items and their desired max stack sizes here
-        -- For items not listed here, and not unique, DefaultMaxStack will be used.
-        -- Unique items will automatically have a max stack of 1.
-    },
-    DefaultMaxStack = 50, -- Default max stack for non-unique items NOT listed in ItemMaxStacks
 }
