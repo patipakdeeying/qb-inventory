@@ -612,135 +612,46 @@ local function getIdentifier(inventoryId, src)
 end
 
 RegisterNetEvent('qb-inventory:server:SetInventoryData', function(fromInventory, toInventory, fromSlot, toSlot, fromAmount, toAmount)
+    if toInventory:find('shop%-') then return end
+    if not fromInventory or not toInventory or not fromSlot or not toSlot or not fromAmount or not toAmount then return end
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
 
-    fromSlot = tonumber(fromSlot)
-    toSlot = tonumber(toSlot)
-    -- fromAmount is the original amount in the source slot (or what client thinks it is)
-    -- toAmount is the amount the player intends to move/drop into the target slot
+    fromSlot, toSlot, fromAmount, toAmount = tonumber(fromSlot), tonumber(toSlot), tonumber(fromAmount), tonumber(toAmount)
 
-    local fromItem = getItem(fromInventory, src, fromSlot) -- Helper to get item from source
-    local toItem = getItem(toInventory, src, toSlot)     -- Helper to get item currently in target slot (if any)
+    local fromItem = getItem(fromInventory, src, fromSlot)
+    local toItem = getItem(toInventory, src, toSlot)
 
-    if not fromItem then
-        QBCore.Functions.Notify(src, "Source item not found.", "error")
-        return
-    end
+    if fromItem then
+        if not toItem and toAmount > fromItem.amount then return end
+        if fromInventory == 'player' and toInventory ~= 'player' then checkWeapon(src, fromItem) end
 
-    local fromId = getIdentifier(fromInventory, src) -- Helper to get actual inventory owner ID
-    local toId = getIdentifier(toInventory, src)     -- Helper to get actual inventory owner ID
+        local fromId = getIdentifier(fromInventory, src)
+        local toId = getIdentifier(toInventory, src)
 
-    -- Determine the actual quantity being attempted to move.
-    -- This could be the whole stack (fromItem.amount) or a partial amount (toAmount, if splitting/stacking specific number).
-    -- For simplicity, let's assume 'toAmount' from the client is the intended quantity to move for this operation.
-    -- Ensure 'toAmount' is valid (e.g., not more than is in fromItem.amount if not splitting from a larger stack, not zero).
-    local amountToAttemptMove = tonumber(toAmount)
-    if not amountToAttemptMove or amountToAttemptMove <= 0 then
-        QBCore.Functions.Notify(src, "Invalid amount to move.", "error")
-        return
-    end
-    if fromItem.amount < amountToAttemptMove then
-         QBCore.Functions.Notify(src, "Trying to move more than available in source slot.", "error")
-         return
-    end
+        if toItem and fromItem.name == toItem.name then
+            if RemoveItem(fromId, fromItem.name, toAmount, fromSlot, 'stacked item') then
+                AddItem(toId, toItem.name, toAmount, toSlot, toItem.info, 'stacked item')
+            end
+        elseif not toItem and toAmount < fromAmount then
+            if RemoveItem(fromId, fromItem.name, toAmount, fromSlot, 'split item') then
+                AddItem(toId, fromItem.name, toAmount, toSlot, fromItem.info, 'split item')
+            end
+        else
+            if toItem then
+                local fromItemAmount = fromItem.amount
+                local toItemAmount = toItem.amount
 
-    -- *** THE CRUCIAL PRE-CHECK ***
-    -- Check if the 'toId' (player inventory) can accept the 'fromItem.name' with 'amountToAttemptMove'.
-    -- The CanAddItem function is in server/functions.lua
-    local canAccept, reason = CanAddItem(toId, fromItem.name, amountToAttemptMove) --
-
-    if not canAccept then
-        local targetInventoryLabel = toInventory
-        if toInventory == "player" then targetInventoryLabel = "Your inventory" end 
-        -- You might want to fetch a more descriptive label if Inventories[toInventory].label exists
-
-        QBCore.Functions.Notify(src, "Cannot move item: " .. targetInventoryLabel .. " " .. (reason or "cannot accept it (full/weight/limit)."), "error")
-        
-        -- It's also good practice to inform the client UI that the operation failed so it can revert any visual changes.
-        -- For example, by triggering a client event:
-        TriggerClientEvent('qb-inventory:client:operationFailed', src, "Move failed: Destination cannot accept item.")
-        return -- IMPORTANT: Stop further processing
-    end
-
-    -- *** END CRUCIAL PRE-CHECK ***
-
-    -- If we are swapping items (toItem exists and it's not stacking on itself)
-    -- we also need to check if the fromInventory can accept the toItem.
-    if toItem and fromItem.name ~= toItem.name and fromId ~= toId then
-        local canSourceAcceptSwap, swapReason = CanAddItem(fromId, toItem.name, toItem.amount)
-        if not canSourceAcceptSwap then
-            local sourceInventoryLabel = fromInventory
-             if fromInventory == "player" then sourceInventoryLabel = "Your inventory" end
-
-            QBCore.Functions.Notify(src, "Cannot swap: " .. sourceInventoryLabel .. " " .. (swapReason or "cannot accept the returning item."), "error")
-            TriggerClientEvent('qb-inventory:client:operationFailed', src, "Swap failed: Source cannot accept the item from destination.")
-            return
-        end
-    end
-
-    -- If CanAddItem passed, proceed with the original logic for removing and then adding.
-    -- The original logic for different scenarios (stacking, splitting, moving to empty, swapping) would follow.
-    -- Example for a simple move to an potentially empty slot (simplified):
-
-    local itemRemovedSuccessfully = false
-    if toItem and fromItem.name == toItem.name and not QBCore.Shared.Items[fromItem.name].unique then -- Stacking
-        itemRemovedSuccessfully = RemoveItem(fromId, fromItem.name, amountToAttemptMove, fromSlot, 'stacked item')
-    elseif not toItem and amountToAttemptMove < fromItem.amount and not QBCore.Shared.Items[fromItem.name].unique then -- Splitting
-        itemRemovedSuccessfully = RemoveItem(fromId, fromItem.name, amountToAttemptMove, fromSlot, 'split item')
-    else -- Moving whole slot or swapping
-        itemRemovedSuccessfully = RemoveItem(fromId, fromItem.name, fromItem.amount, fromSlot, (toItem and 'swapped item part 1' or 'moved item') )
-    end
-
-    if itemRemovedSuccessfully then
-        local itemAddedSuccessfully = false
-        if toItem and fromItem.name == toItem.name and not QBCore.Shared.Items[fromItem.name].unique then -- Stacking
-            itemAddedSuccessfully = AddItem(toId, fromItem.name, amountToAttemptMove, toSlot, fromItem.info, 'stacked item')
-        elseif not toItem and amountToAttemptMove < fromItem.amount and not QBCore.Shared.Items[fromItem.name].unique then -- Splitting
-             itemAddedSuccessfully = AddItem(toId, fromItem.name, amountToAttemptMove, toSlot, fromItem.info, 'split item')
-        elseif toItem then -- Swapping (fromItem has been removed, now add it; then remove toItem and add it to fromId)
-            if AddItem(toId, fromItem.name, fromItem.amount, toSlot, fromItem.info, 'swapped item part 1') then
-                if RemoveItem(toId, toItem.name, toItem.amount, toSlot, 'swapped item part 2') then -- Note: toItem was originally in toSlot, now fromItem is. This removal target toItem by name/amount if AddItem puts it elsewhere. Be cautious with slot targets in complex swaps.
-                    if AddItem(fromId, toItem.name, toItem.amount, fromSlot, toItem.info, 'swapped item part 2') then
-                        itemAddedSuccessfully = true
-                    else
-                        -- Failed to add toItem to fromId; try to give fromItem back to toId (complex rollback)
-                        AddItem(toId, toItem.name, toItem.amount, toSlot, toItem.info, 'swap_rollback_toItem_to_toId')
-                    end
-                else
-                    -- Failed to remove toItem; try to give fromItem back to fromId
-                    AddItem(fromId, fromItem.name, fromItem.amount, fromSlot, fromItem.info, 'swap_rollback_fromItem_to_fromId')
+                if RemoveItem(fromId, fromItem.name, fromItemAmount, fromSlot, 'swapped item') and RemoveItem(toId, toItem.name, toItemAmount, toSlot, 'swapped item') then
+                    AddItem(toId, fromItem.name, fromItemAmount, toSlot, fromItem.info, 'swapped item')
+                    AddItem(fromId, toItem.name, toItemAmount, fromSlot, toItem.info, 'swapped item')
+                end
+            else
+                if RemoveItem(fromId, fromItem.name, toAmount, fromSlot, 'moved item') then
+                    AddItem(toId, fromItem.name, toAmount, toSlot, fromItem.info, 'moved item')
                 end
             end
-        else -- Moving to empty slot
-            itemAddedSuccessfully = AddItem(toId, fromItem.name, amountToAttemptMove, toSlot, fromItem.info, 'moved item')
-        end
-
-        if not itemAddedSuccessfully then
-            -- Attempt to give the item back to the source inventory if AddItem failed
-            QBCore.Functions.Notify(src, "Failed to add item to destination, attempting to return to source.", "error")
-            AddItem(fromId, fromItem.name, amountToAttemptMove, fromSlot, fromItem.info, 'rollback_failed_add')
-            -- Additional client notification for the rollback may be useful here
-        end
-    else
-        QBCore.Functions.Notify(src, "Failed to remove item from source.", "error")
-    end
-
-    -- Update client inventories if they were involved and are open
-    if Player(src).state.inv_busy then
-        TriggerClientEvent('qb-inventory:client:updateInventory', src)
-    end
-    if fromInventory:find('otherplayer-') then
-        local otherPlayerSrc = tonumber(fromInventory:match('otherplayer%-(.+)'))
-        if Player(otherPlayerSrc) and Player(otherPlayerSrc).state.inv_busy then
-            TriggerClientEvent('qb-inventory:client:updateInventory', otherPlayerSrc)
-        end
-    end
-    if toInventory:find('otherplayer-') then
-        local otherPlayerSrc = tonumber(toInventory:match('otherplayer%-(.+)'))
-         if Player(otherPlayerSrc) and Player(otherPlayerSrc).state.inv_busy then
-            TriggerClientEvent('qb-inventory:client:updateInventory', otherPlayerSrc)
         end
     end
 end)
