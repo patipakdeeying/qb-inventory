@@ -113,9 +113,9 @@ VehicleStorage = {
             trunkSlots = 10,
             trunkTotalItemQuantityLimit = 200,
             gloveboxAllowedItems = nil,
-            gloveboxDisallowedItems = nil,
+            gloveboxDisallowedItems = { 'weapon_knife', 'weapon_bat' },
             trunkAllowedItems = nil,
-            trunkDisallowedItems = nil,
+            trunkDisallowedItems = { 'weapon_rpg', 'weapon_minigun' },
         },
         -- Add other specific vehicle models
     }
