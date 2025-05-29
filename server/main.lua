@@ -498,6 +498,78 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData', function(fromInventory,
 
     fromSlot, toSlot, fromAmount, toAmount = tonumber(fromSlot), tonumber(toSlot), tonumber(fromAmount), tonumber(toAmount)
 
+    -- --- START OF NEW LOGIC FOR INTERNAL PLAYER INVENTORY MOVES ---
+    -- This block handles moving items *within* the same player inventory (including hotbar slots).
+    -- It bypasses AddItem/RemoveItem to prevent "stack full" errors on relocations.
+    if fromInventory == 'player' and toInventory == 'player' then
+        local playerInventory = Player.PlayerData.items
+        local movingItem = playerInventory[fromSlot]
+        local targetSlotItem = playerInventory[toSlot] -- Item currently in the target slot
+
+        if not movingItem then
+            print('SetInventoryData: [Internal Move] No item to move in fromSlot ' .. fromSlot)
+            return
+        end
+
+        -- If trying to move to the same slot, do nothing
+        if fromSlot == toSlot then
+            return
+        end
+
+        -- Scenario 1: Moving to an empty slot (most common for manual hotbar placement)
+        if not targetSlotItem then
+            playerInventory[toSlot] = movingItem       -- Place item in target slot
+            playerInventory[toSlot].slot = toSlot      -- Update item's slot property
+            playerInventory[fromSlot] = nil            -- Clear the original slot
+            Player.Functions.SetPlayerData('items', playerInventory) -- Update player data
+            return -- Done with this move
+        end
+
+        -- Scenario 2: Stacking on an existing item of the same type
+        -- This applies if you drag item A onto item A in a different slot (and it's not a unique item)
+        if movingItem.name:lower() == targetSlotItem.name:lower() and not movingItem.unique then
+            local effectiveMaxStack = Config.ItemMaxStacks[movingItem.name:lower()] or Config.MaxStack
+            local canAddToStack = effectiveMaxStack - targetSlotItem.amount
+
+            if canAddToStack <= 0 then
+                print('SetInventoryData: [Internal Move] Cannot stack - target stack for ' .. movingItem.name .. ' is full.')
+                -- Client-side UI will typically prevent this, but server check is good.
+                return
+            end
+
+            local amountToStack = math.min(movingItem.amount, canAddToStack)
+            targetSlotItem.amount = targetSlotItem.amount + amountToStack -- Add to target stack
+            movingItem.amount = movingItem.amount - amountToStack         -- Remove from source stack
+
+            if movingItem.amount <= 0 then
+                playerInventory[fromSlot] = nil -- Clear original slot if all moved
+            else
+                playerInventory[fromSlot] = movingItem -- Update original slot if partial move
+            end
+            Player.Functions.SetPlayerData('items', playerInventory)
+            return -- Done
+        end
+
+        -- Scenario 3: Swapping items (target slot is occupied by a different item type, or a unique item)
+        if targetSlotItem then
+            playerInventory[toSlot] = movingItem       -- Place moving item in target slot
+            playerInventory[toSlot].slot = toSlot      -- Update its slot property
+            playerInventory[fromSlot] = targetSlotItem -- Place target item in original slot
+            playerInventory[fromSlot].slot = fromSlot  -- Update its slot property
+            Player.Functions.SetPlayerData('items', playerInventory)
+            return -- Done
+        end
+
+        -- Fallback if something unexpected happened during internal move (shouldn't be hit often)
+        print('SetInventoryData: [Internal Move] Unhandled scenario for ' .. movingItem.name .. ' from ' .. fromSlot .. ' to ' .. toSlot)
+        return
+    end
+    -- --- END OF NEW LOGIC FOR INTERNAL PLAYER INVENTORY MOVES ---
+
+
+    -- --- ORIGINAL LOGIC FOR TRANSFERS BETWEEN DIFFERENT INVENTORIES ---
+    -- (player to stash, stash to player, player to trunk, etc.)
+    -- This block remains largely as is, as it correctly uses AddItem/RemoveItem for external interactions.
     local fromItem = getItem(fromInventory, src, fromSlot)
     local toItem = getItem(toInventory, src, toSlot)
 
@@ -508,26 +580,50 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData', function(fromInventory,
         local fromId = getIdentifier(fromInventory, src)
         local toId = getIdentifier(toInventory, src)
 
-        if toItem and fromItem.name == toItem.name then
-            if RemoveItem(fromId, fromItem.name, toAmount, fromSlot, 'stacked item') then
-                AddItem(toId, toItem.name, toAmount, toSlot, toItem.info, 'stacked item')
+        if toItem and fromItem.name == toItem.name then -- Stacking on existing same item (between inventories)
+            local amountToMove = fromAmount
+            local actualAmountAdded = AddItem(toId, toItem.name, amountToMove, toSlot, toItem.info, 'stacked item')
+            if actualAmountAdded > 0 then
+                RemoveItem(fromId, fromItem.name, actualAmountAdded, fromSlot, 'stacked item')
+            else
+                print('SetInventoryData: Failed to stack ' .. fromItem.name .. ' to target inventory.')
             end
-        elseif not toItem and toAmount < fromAmount then
-            if RemoveItem(fromId, fromItem.name, toAmount, fromSlot, 'split item') then
-                AddItem(toId, fromItem.name, toAmount, toSlot, fromItem.info, 'split item')
+
+        elseif not toItem and toAmount < fromAmount then -- Splitting an item to a new slot (between inventories)
+            local amountToMove = toAmount
+            local actualAmountAdded = AddItem(toId, fromItem.name, amountToMove, toSlot, fromItem.info, 'split item')
+            if actualAmountAdded > 0 then
+                RemoveItem(fromId, fromItem.name, actualAmountAdded, fromSlot, 'split item')
+            else
+                print('SetInventoryData: Failed to split ' .. fromItem.name .. ' to new slot.')
             end
-        else
-            if toItem then
+
+        else -- Swapping items or moving to an empty slot (between inventories)
+            if toItem then -- Swapping items (between inventories)
                 local fromItemAmount = fromItem.amount
                 local toItemAmount = toItem.amount
 
-                if RemoveItem(fromId, fromItem.name, fromItemAmount, fromSlot, 'swapped item') and RemoveItem(toId, toItem.name, toItemAmount, toSlot, 'swapped item') then
-                    AddItem(toId, fromItem.name, fromItemAmount, toSlot, fromItem.info, 'swapped item')
-                    AddItem(fromId, toItem.name, toItemAmount, fromSlot, toItem.info, 'swapped item')
+                local canAddToTarget = AddItem(toId, fromItem.name, fromItemAmount, toSlot, fromItem.info, 'swapped item - check')
+                if canAddToTarget == fromItemAmount then
+                    local canAddBackToSource = AddItem(fromId, toItem.name, toItemAmount, fromSlot, toItem.info, 'swapped item - check back')
+                    if canAddBackToSource == toItemAmount then
+                        RemoveItem(fromId, fromItem.name, fromItemAmount, fromSlot, 'swapped item')
+                        RemoveItem(toId, toItem.name, toItemAmount, toSlot, 'swapped item')
+                        AddItem(toId, fromItem.name, fromItemAmount, toSlot, fromItem.info, 'swapped item')
+                        AddItem(fromId, toItem.name, toItemAmount, fromSlot, toItem.info, 'swapped item')
+                    else
+                        print('SetInventoryData: Swap failed - source cannot fully accept swapped item ' .. toItem.name)
+                    end
+                else
+                    print('SetInventoryData: Swap failed - target cannot fully accept item ' .. fromItem.name)
                 end
-            else
-                if RemoveItem(fromId, fromItem.name, toAmount, fromSlot, 'moved item') then
-                    AddItem(toId, fromItem.name, toAmount, toSlot, fromItem.info, 'moved item')
+            else -- Moving to an empty slot (between inventories)
+                local amountToMove = fromItemAmount
+                local actualAmountAdded = AddItem(toId, fromItem.name, amountToMove, toSlot, fromItem.info, 'moved item')
+                if actualAmountAdded > 0 then
+                    RemoveItem(fromId, fromItem.name, actualAmountAdded, fromSlot, 'moved item')
+                else
+                    print('SetInventoryData: Failed to move ' .. fromItem.name .. ' to empty slot.')
                 end
             end
         end

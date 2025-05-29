@@ -3,6 +3,13 @@ Config = {
 
     MaxWeight = 999999999,
     MaxSlots = 40,
+    MaxStack = 64,
+    HotbarSlots = 5,
+
+    ItemMaxStacks = {
+        ['water_bottle'] = 10,  -- Water bottles will stack up to 10
+        ['tosti'] = 30,         -- Bread will stack up to 30
+    },
 
     StashSize = {
         maxweight = 999999999,
