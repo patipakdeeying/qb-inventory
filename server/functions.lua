@@ -384,12 +384,6 @@ function CanAddItem(identifier, item, amount)
         return false
     end
 
-    -- local weight = itemData.weight * amount -- REMOVE or COMMENT OUT this line
-    -- local totalWeight = GetTotalWeight(items) + weight -- REMOVE or COMMENT OUT this line
-    -- if totalWeight > inventory.maxweight then -- REMOVE or COMMENT OUT this line
-    --     return false, 'weight' -- REMOVE or COMMENT OUT this line
-    -- end
-
     local slotsUsed, _ = GetSlots(identifier)
 
     if slotsUsed >= inventory.slots then
@@ -514,7 +508,6 @@ function OpenInventoryById(source, targetId)
     local formattedInventory = {
         name = 'otherplayer-' .. targetId,
         label = GetPlayerName(targetId),
-        maxweight = Config.MaxWeight,
         slots = Config.MaxSlots,
         inventory = targetItems
     }
@@ -588,7 +581,6 @@ function OpenShop(source, name)
     local formattedInventory = {
         name = 'shop-' .. RegisteredShops[name].name,
         label = RegisteredShops[name].label,
-        maxweight = 5000000,
         slots = #RegisteredShops[name].items,
         inventory = RegisteredShops[name].items
     }
@@ -632,7 +624,6 @@ function OpenInventory(source, identifier, data)
     local formattedInventory = {
         name = identifier,
         label = inventory.label,
-        maxweight = inventory.maxweight,
         slots = inventory.slots,
         inventory = inventory.items
     }
@@ -682,67 +673,63 @@ exports('RemoveInventory', RemoveInventory)
 function AddItem(identifier, item, amount, slot, info, reason)
     local itemInfo = QBCore.Shared.Items[item:lower()]
     if not itemInfo then
-        print('AddItem: Invalid item')
-        return 0
+        print('AddItem: Invalid item name provided: ' .. tostring(item))
+        TriggerEvent('qb-log:server:CreateLog', 'inventory_error', 'AddItem Fail', 'red', 'Invalid item name for AddItem: ' ..tostring(item))
+        return 0 -- Amount added
     end
-    local inventory, inventoryWeight, inventorySlots
+
+    local isPlayerInventory = false
+    local inventory, inventoryMaxSlots
     local player = QBCore.Functions.GetPlayer(identifier)
 
     if player then
+        isPlayerInventory = true
         inventory = player.PlayerData.items
-        inventoryWeight = Config.MaxWeight
-        inventorySlots = Config.MaxSlots
+        inventoryMaxSlots = Config.MaxSlots
     elseif Inventories[identifier] then
+        isPlayerInventory = false -- This is an "other inventory"
         inventory = Inventories[identifier].items
-        inventoryWeight = Inventories[identifier].maxweight
-        inventorySlots = Inventories[identifier].slots
+        inventoryMaxSlots = Inventories[identifier].slots
+    else
+        print('AddItem: Inventory not found for identifier: ' .. tostring(identifier))
+        TriggerEvent('qb-log:server:CreateLog', 'inventory_error', 'AddItem Fail', 'red', 'Attempted to add item to non-existent inventory: ' ..tostring(identifier))
+        return 0 -- Amount added
     end
 
     if not inventory then
-        print('AddItem: Inventory not found')
+        print('AddItem: Target inventory table is nil for identifier: ' .. tostring(identifier))
         return 0
     end
 
     amount = tonumber(amount) or 1
-    local totalAmountAdded = 0
+    if amount <= 0 then return 0 end
 
+    local totalAmountAdded = 0
     local effectiveMaxStack = Config.ItemMaxStacks[item:lower()] or Config.MaxStack
 
-    -- --- START OF ADDITEM LOGIC ---
-
-    -- Logic for Unique Items:
+    -- Logic for Unique Items (inherently one item instance per slot, stack limits don't apply in the same way)
     if itemInfo.unique then
         local finalPlacementSlot = nil
-
-        -- PREFER the provided 'slot' parameter if it's valid and empty
-        if slot ~= nil and type(slot) == 'number' and slot >= 1 and slot <= inventorySlots and not inventory[slot] then
+        if slot ~= nil and type(slot) == 'number' and slot >= 1 and slot <= inventoryMaxSlots and not inventory[slot] then
             finalPlacementSlot = slot
         else
-            -- Otherwise, fall back to GetFirstFreeSlot (which now skips hotbar)
-            finalPlacementSlot = GetFirstFreeSlot(inventory, inventorySlots)
+            -- For unique items, if a specific slot isn't provided or is occupied, find any free slot.
+            -- The "one slot per item type" doesn't apply to unique items in the same way as non-uniques,
+            -- as each unique item is distinct.
+            finalPlacementSlot = GetFirstFreeSlot(inventory, inventoryMaxSlots)
         end
 
         if not finalPlacementSlot then
-            print('AddItem: No available slot (unique item) for ' .. item .. ' (or provided slot occupied)')
+            print('AddItem: No available slot for unique item ' .. item .. ' in inventory ' .. tostring(identifier))
             return 0
         end
 
         inventory[finalPlacementSlot] = {
-            name = item,
-            amount = amount,
-            info = info or {},
-            label = itemInfo.label,
-            description = itemInfo.description or '',
-            weight = itemInfo.weight,
-            type = itemInfo.type,
-            unique = itemInfo.unique,
-            useable = itemInfo.useable,
-            image = itemInfo.image,
-            shouldClose = itemInfo.shouldClose,
-            slot = finalPlacementSlot,
-            combinable = itemInfo.combinable
+            name = item, amount = amount, info = info or {}, label = itemInfo.label,
+            description = itemInfo.description or '', type = itemInfo.type,
+            unique = itemInfo.unique, useable = itemInfo.useable, image = itemInfo.image,
+            shouldClose = itemInfo.shouldClose, slot = finalPlacementSlot, combinable = itemInfo.combinable
         }
-
         if itemInfo.type == 'weapon' then
             if not inventory[finalPlacementSlot].info.serie then
                 inventory[finalPlacementSlot].info.serie = tostring(QBCore.Shared.RandomInt(2) .. QBCore.Shared.RandomStr(3) .. QBCore.Shared.RandomInt(1) .. QBCore.Shared.RandomStr(2) .. QBCore.Shared.RandomInt(3) .. QBCore.Shared.RandomStr(4))
@@ -751,120 +738,123 @@ function AddItem(identifier, item, amount, slot, info, reason)
                 inventory[finalPlacementSlot].info.quality = 100
             end
         end
-
         totalAmountAdded = amount
-
-        if player then player.Functions.SetPlayerData('items', inventory) end
-        local invName = player and GetPlayerName(identifier) .. ' (' .. identifier .. ')' or identifier
-        local addReason = reason or 'No reason specified'
-        local resourceName = GetInvokingResource() or 'qb-inventory'
-        TriggerEvent(
-            'qb-log:server:CreateLog',
-            'playerinventory',
-            'Item Added',
-            'green',
-            '**Inventory:** ' .. invName .. ' (Slot: ' .. finalPlacementSlot .. ')\n' ..
-            '**Item:** ' .. item .. '\n' ..
-            '**Amount:** ' .. amount .. '\n' ..
-            '**Reason:** ' .. addReason .. '\n' ..
-            '**Resource:** ' .. resourceName
-        )
-        return totalAmountAdded
-    end
-
-    -- Logic for Non-Unique (Stackable) Items:
-    local existingItemSlot = nil
-    local existingItem = nil
-
-    for invSlot, invItem in pairs(inventory) do
-        if invItem.name:lower() == item:lower() then
-            existingItemSlot = invSlot
-            existingItem = invItem
-            break
-        end
-    end
-
-    if existingItem then
-        local canAddToStack = effectiveMaxStack - existingItem.amount
-        if canAddToStack <= 0 then
-            print('AddItem: Stack for ' .. item .. ' is full. Cannot add more to this inventory.')
-            return 0
-        end
-
-        local addAmount = math.min(amount, canAddToStack)
-        existingItem.amount = existingItem.amount + addAmount
-        totalAmountAdded = addAmount
-
-        if player then player.Functions.SetPlayerData('items', inventory) end
-        local invName = player and GetPlayerName(identifier) .. ' (' .. identifier .. ')' or identifier
-        local addReason = reason or 'No reason specified'
-        local resourceName = GetInvokingResource() or 'qb-inventory'
-        TriggerEvent(
-            'qb-log:server:CreateLog',
-            'playerinventory',
-            'Item Added',
-            'green',
-            '**Inventory:** ' .. invName .. ' (Slot: ' .. existingItemSlot .. ')\n' ..
-            '**Item:** ' .. item .. '\n' ..
-            '**Amount:** ' .. addAmount .. ' (added to existing stack)\n' ..
-            '**Reason:** ' .. addReason .. '\n' ..
-            '**Resource:** ' .. resourceName
-        )
-        return totalAmountAdded
     else
-        -- Item does not exist: Place in a new slot (this will be its single stack)
-        local finalPlacementSlot = nil
-        -- PREFER the provided 'slot' parameter if it's valid and empty
-        if slot ~= nil and type(slot) == 'number' and slot >= 1 and slot <= inventorySlots and not inventory[slot] then
-            finalPlacementSlot = slot
-        else
-            -- Otherwise, fall back to GetFirstFreeSlot (which now skips hotbar)
-            finalPlacementSlot = GetFirstFreeSlot(inventory, inventorySlots)
+        -- Logic for Non-Unique (Stackable) Items
+        local existingItemSlotKey = nil
+        local existingItemData = nil
+
+        -- For player inventory, find if this item type already exists. There can be only one slot.
+        -- For other inventories, find any stack to add to (or create new if none).
+        if isPlayerInventory then
+            for k, v in pairs(inventory) do
+                if v.name:lower() == item:lower() then
+                    existingItemSlotKey = k
+                    existingItemData = v
+                    break -- Found the single allowed slot for this item type
+                end
+            end
+        else -- For "other inventory", find a stack to add to (original behavior before "one slot per type" for player)
+            for k, v in pairs(inventory) do
+                if v.name:lower() == item:lower() then
+                    -- No stack limit check here for "other inventory" if we just add to first found.
+                    -- Or, if we want to allow "other inventory" to have multiple stacks of same item, this loop needs to be smarter.
+                    -- For now, let's assume "other inventory" also tries to consolidate into one stack if found, but without stack cap.
+                    existingItemSlotKey = k
+                    existingItemData = v
+                    break
+                end
+            end
         end
 
-        if not finalPlacementSlot then
-            print('AddItem: No free slot available for new stack of ' .. item .. ' (or provided slot occupied)')
-            return 0
+        if existingItemData then -- Item type already exists in one slot (for player), or a stack was found (for other)
+            local amountToActuallyAddToThisStack
+            if isPlayerInventory then
+                local spaceInPlayerStack = effectiveMaxStack - existingItemData.amount
+                amountToActuallyAddToThisStack = math.min(amount, spaceInPlayerStack)
+            else -- For "other inventories", no stack limit for adding to this existing stack
+                amountToActuallyAddToThisStack = amount
+            end
+
+            if amountToActuallyAddToThisStack > 0 then
+                existingItemData.amount = existingItemData.amount + amountToActuallyAddToThisStack
+                totalAmountAdded = amountToActuallyAddToThisStack
+            else
+                -- For player, this means their single stack for this item is full.
+                if isPlayerInventory then
+                     print('AddItem: Player\'s stack for ' .. item .. ' is full in inventory ' .. tostring(identifier))
+                end
+            end
+        else -- Item type does not exist in inventory (for player), or no stack found to merge with (for other)
+             -- So, we can create a new entry if there's a free slot.
+            local amountForNewStack
+            if isPlayerInventory then
+                amountForNewStack = math.min(amount, effectiveMaxStack)
+            else -- For "other inventories", no stack limit for a new stack
+                amountForNewStack = amount
+            end
+
+            if amountForNewStack > 0 then
+                local finalPlacementSlot = nil
+                if slot ~= nil and type(slot) == 'number' and slot >= 1 and slot <= inventoryMaxSlots and not inventory[slot] then
+                    finalPlacementSlot = slot
+                else
+                    finalPlacementSlot = GetFirstFreeSlot(inventory, inventoryMaxSlots)
+                end
+
+                if not finalPlacementSlot then
+                    print('AddItem: No available slot for new item ' .. item .. ' in inventory ' .. tostring(identifier))
+                else
+                    inventory[finalPlacementSlot] = {
+                        name = item, amount = amountForNewStack, info = info or {}, label = itemInfo.label,
+                        description = itemInfo.description or '', type = itemInfo.type,
+                        unique = itemInfo.unique, useable = itemInfo.useable, image = itemInfo.image,
+                        shouldClose = itemInfo.shouldClose, slot = finalPlacementSlot, combinable = itemInfo.combinable
+                    }
+                    if itemInfo.type == 'weapon' then
+                        if not inventory[finalPlacementSlot].info.serie then
+                           inventory[finalPlacementSlot].info.serie = tostring(QBCore.Shared.RandomInt(2) .. QBCore.Shared.RandomStr(3) .. QBCore.Shared.RandomInt(1) .. QBCore.Shared.RandomStr(2) .. QBCore.Shared.RandomInt(3) .. QBCore.Shared.RandomStr(4))
+                        end
+                        if not inventory[finalPlacementSlot].info.quality then
+                            inventory[finalPlacementSlot].info.quality = 100
+                        end
+                    end
+                    totalAmountAdded = amountForNewStack
+                end
+            end
         end
+    end
 
-        local addAmountToNewSlot = math.min(amount, effectiveMaxStack)
-
-        inventory[finalPlacementSlot] = {
-            name = item,
-            amount = addAmountToNewSlot,
-            info = info or {},
-            label = itemInfo.label,
-            description = itemInfo.description or '',
-            weight = itemInfo.weight,
-            type = itemInfo.type,
-            unique = itemInfo.unique,
-            useable = itemInfo.useable,
-            image = itemInfo.image,
-            shouldClose = itemInfo.shouldClose,
-            slot = finalPlacementSlot,
-            combinable = itemInfo.combinable
-        }
-
-        totalAmountAdded = addAmountToNewSlot
-
-        if player then player.Functions.SetPlayerData('items', inventory) end
+    if totalAmountAdded > 0 then
+        if player then
+            player.Functions.SetPlayerData('items', inventory)
+            if Player(identifier).state.inv_busy then TriggerClientEvent('qb-inventory:client:updateInventory', identifier) end
+        end
+        -- Logging (adapt as needed)
         local invName = player and GetPlayerName(identifier) .. ' (' .. identifier .. ')' or identifier
         local addReason = reason or 'No reason specified'
         local resourceName = GetInvokingResource() or 'qb-inventory'
+        -- Determine slot filled more accurately for log if possible
+        local slotFilledInfo = "N/A"
+        if existingItemSlotKey then slotFilledInfo = tostring(existingItemSlotKey)
+        elseif totalAmountAdded > 0 then -- if added to new slot, find it
+            for k,v in pairs(inventory) do if v.name == item and v.amount == totalAmountAdded then slotFilledInfo = tostring(k); break; end
+            end
+        end
+
         TriggerEvent(
             'qb-log:server:CreateLog',
-            'playerinventory',
-            'Item Added',
-            'green',
-            '**Inventory:** ' .. invName .. ' (Slot: ' .. finalPlacementSlot .. ')\n' ..
+            'playerinventory', 'Item Added', 'green',
+            '**Inventory:** ' .. invName .. ' (Slot: '..slotFilledInfo..')\n' ..
             '**Item:** ' .. item .. '\n' ..
-            '**Amount:** ' .. addAmountToNewSlot .. ' (new stack)\n' ..
+            '**Amount Added:** ' .. totalAmountAdded .. '\n' ..
             '**Reason:** ' .. addReason .. '\n' ..
-            '**Resource:** ' .. resourceName
+            '**Resource:** ' .. resourceName ..
+            (not isPlayerInventory and totalAmountAdded > 0 and "\n**Note:** Stack limit bypassed (non-player inventory)" or "") ..
+            (isPlayerInventory and totalAmountAdded < amount and "\n**Note:** Could not add full amount due to stack limit/single slot per item rule." or "")
         )
-        return totalAmountAdded
     end
-    -- --- END OF ADDITEM LOGIC ---
+    return totalAmountAdded
 end
 
 exports('AddItem', AddItem)
