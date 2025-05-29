@@ -117,20 +117,52 @@ RegisterCommand('inventory', function(source)
     local QBPlayer = QBCore.Functions.GetPlayer(source)
     if not QBPlayer then return end
     if not QBPlayer or QBPlayer.PlayerData.metadata['isdead'] or QBPlayer.PlayerData.metadata['inlaststand'] or QBPlayer.PlayerData.metadata['ishandcuffed'] then return end
-    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventory, class)
-        if not inventory then return OpenInventory(source) end
-        if inventory:find('trunk-') then
-            OpenInventory(source, inventory, {
-                slots = VehicleStorage[class] and VehicleStorage[class].trunkSlots or VehicleStorage.default.slots,
-                maxweight = VehicleStorage[class] and VehicleStorage[class].trunkWeight or VehicleStorage.default.maxWeight
-            })
-            return
-        elseif inventory:find('glovebox-') then
-            OpenInventory(source, inventory, {
-                slots = VehicleStorage[class] and VehicleStorage[class].gloveboxSlots or VehicleStorage.default.slots,
-                maxweight = VehicleStorage[class] and VehicleStorage[class].gloveboxWeight or VehicleStorage.default.maxWeight
-            })
+    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventoryName, vehicleClass, vehicleModelName)
+        print(string.format("[QB-Inv Server] Received from VehicleCheck: InvName=%s, Class=%s, Model=%s", tostring(inventoryName), tostring(vehicleClass), tostring(vehicleModelName))) -- Print received values
+
+        if not inventoryName then
+            print("[QB-Inv Server] No inventoryName received, opening player inventory.")
+            return OpenInventory(source) -- Open player inventory if no vehicle inventory identifier
+        end
+
+        -- Ensure vehicleModelName and vehicleClass are valid before calling GetVehicleStorageConfig
+        if not vehicleModelName or vehicleClass == nil then
+            print("ERROR: QB-Inventory - Missing modelName or vehicleClass for: " .. inventoryName)
+            QBCore.Functions.Notify(source, "Could not determine vehicle details.", "error")
             return
         end
+        
+        local effectiveConfig = GetVehicleStorageConfig(vehicleModelName, vehicleClass)
+        print("[QB-Inv Server] Effective Vehicle Config:", json.encode(effectiveConfig)) -- Check the resolved config
+
+        local inventoryData = {
+            slots = 0,
+            totalItemQuantityLimit = 0, -- Initialize
+            rules = {},
+            type = nil,
+            label = inventoryName -- Or a more friendly label
+        }
+
+        if inventoryName:find('trunk-') then
+            inventoryData.slots = effectiveConfig.trunkSlots
+            inventoryData.totalItemQuantityLimit = effectiveConfig.trunkTotalItemQuantityLimit
+            inventoryData.rules.allowedItems = effectiveConfig.trunkAllowedItems
+            inventoryData.rules.disallowedItems = effectiveConfig.trunkDisallowedItems
+            inventoryData.type = "trunk"
+            inventoryData.label = "Vehicle Trunk" -- Example label
+        elseif inventoryName:find('glovebox-') then
+            inventoryData.slots = effectiveConfig.gloveboxSlots
+            inventoryData.totalItemQuantityLimit = effectiveConfig.gloveboxTotalItemQuantityLimit
+            inventoryData.rules.allowedItems = effectiveConfig.gloveboxAllowedItems
+            inventoryData.rules.disallowedItems = effectiveConfig.gloveboxDisallowedItems
+            inventoryData.type = "glovebox"
+            inventoryData.label = "Glove Compartment" -- Example label
+        else
+            -- Should not happen if inventoryName is from vehicleCheck, but as a fallback
+            QBCore.Functions.Notify(source, "Unknown inventory type.", "error")
+            return
+        end
+        print("[QB-Inv Server] Prepared InventoryData for OpenInventory:", json.encode(inventoryData))
+        OpenInventory(source, inventoryName, inventoryData)
     end)
 end, false)

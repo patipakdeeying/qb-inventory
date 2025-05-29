@@ -1,8 +1,18 @@
 VehicleStorage = {
     default = {
-        gloveboxSlots = 5,
-        trunkSlots = 35,
+        gloveboxSlots = 5,              -- Max number of different item types/occupied slots
+        gloveboxTotalItemQuantityLimit = 50, -- Max sum of quantities of all items in glovebox
+
+        trunkSlots = 10,
+        trunkTotalItemQuantityLimit = 200,
+
+        gloveboxAllowedItems = nil,
+        gloveboxDisallowedItems = nil,
+        trunkAllowedItems = nil,
+        trunkDisallowedItems = nil,
     },
+
+    categories = {
     [0] = { -- Compacts
         gloveboxSlots = 5,
         trunkSlots = 30,
@@ -32,8 +42,14 @@ VehicleStorage = {
         trunkSlots = 25,
     },
     [7] = { -- Super
-        gloveboxSlots = 5,
-        trunkSlots = 25,
+        gloveboxSlots = 5,              -- Max number of different item types/occupied slots
+        gloveboxTotalItemQuantityLimit = 50, -- Max sum of quantities of all items in glovebox
+        trunkSlots = 10,
+        trunkTotalItemQuantityLimit = 200,
+        gloveboxAllowedItems = nil,
+        gloveboxDisallowedItems = nil,
+        trunkAllowedItems = nil,
+        trunkDisallowedItems = nil,
     },
     [8] = { -- Motorcycles
         gloveboxSlots = 5,
@@ -87,6 +103,22 @@ VehicleStorage = {
         gloveboxSlots = 0,
         trunkSlots = 0,
     },
+},
+    
+    models = {
+        -- Key is the lowercase vehicle model name string
+        ['italigtb2'] = {
+            gloveboxSlots = 3,              -- Max number of different item types/occupied slots
+            gloveboxTotalItemQuantityLimit = 50, -- Max sum of quantities of all items in glovebox
+            trunkSlots = 10,
+            trunkTotalItemQuantityLimit = 200,
+            gloveboxAllowedItems = nil,
+            gloveboxDisallowedItems = nil,
+            trunkAllowedItems = nil,
+            trunkDisallowedItems = nil,
+        },
+        -- Add other specific vehicle models
+    }
 }
 
 BackEngineVehicles = {

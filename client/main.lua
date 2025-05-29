@@ -168,6 +168,7 @@ RegisterNetEvent('qb-inventory:server:RobPlayer', function(TargetId)
 end)
 
 RegisterNetEvent('qb-inventory:client:openInventory', function(items, other)
+    print("[QB-Inv Client] Received 'qb-inventory:client:openInventory' event. Other data:", json.encode(other)) -- Check 'other'
     SetNuiFocus(true, true)
     SendNUIMessage({
         action = 'open',

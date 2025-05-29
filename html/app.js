@@ -107,6 +107,7 @@ const InventoryContainer = Vue.createApp({
             };
         },
         openInventory(data) {
+            console.log("[QB-Inv NUI] app.js openInventory method called. Data.other:", JSON.stringify(data.other));
             if (this.showHotbar) {
                 this.toggleHotbar(false);
             }
@@ -156,7 +157,7 @@ const InventoryContainer = Vue.createApp({
                 this.otherInventoryLabel = data.other.label;
                 this.otherInventoryMaxWeight = data.other.maxweight;
                 this.otherInventorySlots = data.other.slots;
-
+                console.log("[QB-Inv NUI] OtherInv Slots:", this.otherInventorySlots, "OtherInv Qty Limit:", this.otherInventoryTotalQuantityLimit);
                 if (this.otherInventoryName.startsWith("shop-")) {
                     this.isShopInventory = true;
                 } else {
@@ -923,6 +924,7 @@ const InventoryContainer = Vue.createApp({
         window.addEventListener("message", (event) => {
             switch (event.data.action) {
                 case "open":
+                    console.log("[QB-Inv NUI] Received 'open' action. Full data:", JSON.stringify(event.data));
                     this.openInventory(event.data);
                     break;
                 case "close":
