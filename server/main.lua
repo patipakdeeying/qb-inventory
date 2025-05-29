@@ -618,7 +618,7 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData', function(fromInventory,
                     print('SetInventoryData: Swap failed - target cannot fully accept item ' .. fromItem.name)
                 end
             else -- Moving to an empty slot (between inventories)
-                local amountToMove = fromItemAmount
+                local amountToMove = toAmount
                 local actualAmountAdded = AddItem(toId, fromItem.name, amountToMove, toSlot, fromItem.info, 'moved item')
                 if actualAmountAdded > 0 then
                     RemoveItem(fromId, fromItem.name, actualAmountAdded, fromSlot, 'moved item')
