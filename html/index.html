@@ -82,6 +82,17 @@
                             <div class="inventory-label">
                                 <p>{{ otherInventoryLabel }}</p>
                             </div>
+                                <div class="other-inventory-stats" 
+                                    v-if="!isOtherInventoryEmpty && (otherInventoryName.startsWith('trunk-') || otherInventoryName.startsWith('glovebox-'))">
+                                    <p class="stat-line">
+                                        <span class="stat-label">Slot:</span>
+                                        <span class="stat-value">{{ computedOtherInventoryOccupiedSlots }} / {{ otherInventorySlots }}</span>
+                                    </p>
+                                    <p class="stat-line" v-if="otherInventoryTotalItemQuantityLimit > 0"> 
+                                        <span class="stat-label">Quantity:</span>
+                                        <span class="stat-value">{{ computedOtherInventoryCurrentItemQuantity }} / {{ otherInventoryTotalItemQuantityLimit }}</span>
+                                    </p>
+                                </div>
                             <!-- <div class="current-weight">
                                 <p>{{ (otherInventoryWeight / 1000).toFixed(1) }} / {{(otherInventoryMaxWeight / 1000).toFixed(1) }}</p>
                             </div> -->

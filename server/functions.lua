@@ -113,6 +113,8 @@ function GetCurrentTotalItemQuantity(itemsTable)
     end
     return totalQuantity
 end
+
+
 -- Exported Functions
 
 function LoadInventory(source, citizenid)
@@ -708,15 +710,24 @@ function OpenInventory(source, identifier, data)
          print(string.format("[QB-Inv Server] Stored config for %s: Slots=%s, QtyLimit=%s, RulesType=%s", identifier, tostring(Inventories[identifier].slots), tostring(Inventories[identifier].totalItemQuantityLimit), tostring(Inventories[identifier].rules and Inventories[identifier].rules.type)))
     end
 
+    local occupiedSlots = 0
+    if inventory.items then -- inventory here is Inventories[identifier]
+        for _ in pairs(inventory.items) do
+            occupiedSlots = occupiedSlots + 1
+        end
+    end
+    local currentItemQuantity = GetCurrentTotalItemQuantity(inventory.items)
+
     local formattedInventory = {
         name = identifier,
         label = inventory.label,
-        slots = inventory.slots,
-        inventory = inventory.items,
-        -- Consider sending totalItemQuantityLimit and current total quantity to UI if you want to display it:
-        -- totalItemQuantityLimit = inventory.totalItemQuantityLimit,
-        -- currentItemQuantity = GetCurrentTotalItemQuantity(inventory.items)
-    }
+        slots = inventory.slots,                         -- Max distinct item types for this container
+        occupiedSlots = occupiedSlots,                   -- Current distinct item types
+        totalItemQuantityLimit = inventory.totalItemQuantityLimit, -- Max total quantity for this container
+        currentItemQuantity = currentItemQuantity,       -- Current total quantity
+        inventory = inventory.items,                     -- The actual item list
+        rules = inventory.rules                          -- Pass rules if client needs UI hints (optional for this feature)
+        }
     print("[QB-Inv Server] FormattedInventory being sent to client:", json.encode(formattedInventory))
     TriggerClientEvent('qb-inventory:client:openInventory', source, QBPlayer.PlayerData.items, formattedInventory)
 end

@@ -3,43 +3,19 @@ const InventoryContainer = Vue.createApp({
         return this.getInitialState();
     },
     computed: {
-        playerWeight() {
-            const weight = Object.values(this.playerInventory).reduce((total, item) => {
-                if (item && item.weight !== undefined && item.amount !== undefined) {
-                    return total + item.weight * item.amount;
+        computedOtherInventoryOccupiedSlots() {
+            if (!this.otherInventory || typeof this.otherInventory !== 'object') return 0;
+            // Counts actual items in the otherInventory object
+            return Object.values(this.otherInventory).filter(item => item !== null && typeof item === 'object' && item.name).length;
+        },
+        computedOtherInventoryCurrentItemQuantity() {
+            if (!this.otherInventory || typeof this.otherInventory !== 'object') return 0;
+            return Object.values(this.otherInventory).reduce((total, item) => {
+                if (item && typeof item.amount === 'number') {
+                    return total + item.amount;
                 }
                 return total;
             }, 0);
-            return isNaN(weight) ? 0 : weight;
-        },
-        otherInventoryWeight() {
-            const weight = Object.values(this.otherInventory).reduce((total, item) => {
-                if (item && item.weight !== undefined && item.amount !== undefined) {
-                    return total + item.weight * item.amount;
-                }
-                return total;
-            }, 0);
-            return isNaN(weight) ? 0 : weight;
-        },
-        weightBarClass() {
-            const weightPercentage = (this.playerWeight / this.maxWeight) * 100;
-            if (weightPercentage < 50) {
-                return "low";
-            } else if (weightPercentage < 75) {
-                return "medium";
-            } else {
-                return "high";
-            }
-        },
-        otherWeightBarClass() {
-            const weightPercentage = (this.otherInventoryWeight / this.otherInventoryMaxWeight) * 100;
-            if (weightPercentage < 50) {
-                return "low";
-            } else if (weightPercentage < 75) {
-                return "medium";
-            } else {
-                return "high";
-            }
         },
         shouldCenterInventory() {
             return this.isOtherInventoryEmpty;
@@ -54,7 +30,6 @@ const InventoryContainer = Vue.createApp({
         getInitialState() {
             return {
                 // Config Options
-                maxWeight: 0,
                 totalSlots: 0,
                 // Escape Key
                 isInventoryOpen: false,
@@ -65,12 +40,10 @@ const InventoryContainer = Vue.createApp({
                 // Player Inventory
                 playerInventory: {},
                 inventoryLabel: "Inventory",
-                totalWeight: 0,
                 // Other inventory
                 otherInventory: {},
                 otherInventoryName: "",
                 otherInventoryLabel: "Drop",
-                otherInventoryMaxWeight: 1000000,
                 otherInventorySlots: 100,
                 isShopInventory: false,
                 // Where item is coming from
@@ -104,7 +77,7 @@ const InventoryContainer = Vue.createApp({
                 ghostElement: null,
                 dragStartInventoryType: "player",
                 transferAmount: null,
-                //aded for remove functionality
+                //added for remove functionality
                 showQuantityInputModal: false,
                 showConfirmRemoveModal: false,
                 itemForRemovalAction: null,
@@ -117,6 +90,11 @@ const InventoryContainer = Vue.createApp({
                 giveTargetPlayerId: '',
                 giveQuantityString: '', // Initialize as empty for placeholder to show
                 giveItemError: '',
+                //added for displaying those new vehicle inventory limits
+                otherInventorySlots: 100, // This will store MAX distinct types for the 'other' inventory
+                otherInventoryOccupiedSlots: 0, // To store CURRENT occupied distinct types for 'other'
+                otherInventoryTotalItemQuantityLimit: 0, // To store MAX total quantity for 'other'
+                otherInventoryCurrentItemQuantity: 0,
             };
         },
         openInventory(data) {
@@ -125,7 +103,6 @@ const InventoryContainer = Vue.createApp({
             }
 
             this.isInventoryOpen = true;
-            this.maxWeight = data.maxweight;
             this.totalSlots = data.slots;
             this.playerInventory = {};
             this.otherInventory = {};
@@ -167,8 +144,12 @@ const InventoryContainer = Vue.createApp({
 
                 this.otherInventoryName = data.other.name;
                 this.otherInventoryLabel = data.other.label;
-                this.otherInventoryMaxWeight = data.other.maxweight;
-                this.otherInventorySlots = data.other.slots;
+                this.otherInventorySlots = data.other.slots || 0;
+                this.otherInventoryOccupiedSlots = data.other.occupiedSlots || 0;
+                this.otherInventoryTotalItemQuantityLimit = data.other.totalItemQuantityLimit || 0; // Max total quantity
+                this.otherInventoryCurrentItemQuantity = data.other.currentItemQuantity || 0; // Current total quantity (from server)
+                this.isOtherInventoryEmpty = false;
+
 
                 if (this.otherInventoryName.startsWith("shop-")) {
                     this.isShopInventory = true;
@@ -1029,7 +1010,6 @@ const InventoryContainer = Vue.createApp({
                 }
             }
             content += `<div class="tooltip-description">${description}</div>`;
-            content += `<div class="tooltip-weight"><i class="fas fa-weight-hanging"></i> ${item.weight !== undefined && item.weight !== null ? (item.weight / 1000).toFixed(1) : "N/A"}kg</div>`;
             content += `</div>`;
             return content;
         },

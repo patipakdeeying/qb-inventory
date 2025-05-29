@@ -276,35 +276,6 @@ div {
     text-align: center;
 }
 
-/* Weight Bar Styles */
-
-.current-weight > p {
-    text-align: right;
-    padding-right: 5px;
-}
-
-.weight-bar {
-    width: 100%;
-    background-color: var(--surface-container-high);
-}
-
-.weight-bar-fill {
-    height: 5px;
-    transition: width 0.2s;
-}
-
-.weight-bar-fill.low {
-    background-color: var(--success);
-}
-
-.weight-bar-fill.medium {
-    background-color: var(--warning);
-}
-
-.weight-bar-fill.high {
-    background-color: var(--error);
-}
-
 /* Hotbar */
 
 .hotbar-container {
@@ -707,4 +678,30 @@ div {
     color: var(--on-surface-variant, #cac4d0);
     margin-bottom: 3px;
     margin-top: 8px;
+}
+
+/*added for other inventory show slot */
+.other-inventory-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end; /* Aligns text to the right if stats are stacked vertically */
+    font-size: 0.75em;   /* Slightly smaller font */
+    color: var(--on-surface-variant, #bdbdbd); /* Lighter text color */
+    margin-left: auto;   /* Pushes this block to the right of the label */
+    padding-right: 5px;  /* Similar to how .current-weight might have been padded */
+    text-align: right;   /* Ensures text within <p> aligns right */
+}
+
+.other-inventory-stats .stat-line {
+    margin-bottom: 2px; /* Small space between "Types" and "Quantity" lines */
+    white-space: nowrap; /* Prevent wrapping if the header is narrow */
+}
+
+.other-inventory-stats .stat-label {
+    font-weight: 500; /* Slightly bolder label */
+    margin-right: 5px;
+}
+
+.other-inventory-stats .stat-value {
+    /* Add any specific styling for the value if needed */
 }
