@@ -578,45 +578,115 @@ div {
 
 /* Basic styling for the new popup - add to your main.css */
 .quantity-popup-overlay {
-	position: fixed;
-	top: 0;
-	left: 0;
-	width: 100%;
-	height: 100%;
-	background-color: rgba(0, 0, 0, 0.5);
-	display: flex;
-	justify-content: center;
-	align-items: center;
-	z-index: 1001;
-	/* Ensure it's above other inventory elements */
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Old background: background-color: var(--scrim, rgba(0, 0, 0, 0.6)); */
+    background-color: transparent; /* <--- CHANGE THIS for no overlay background */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1001;
+    backdrop-filter: none; /* <--- REMOVE or set to 'none' if you had blur */
 }
 
 .quantity-popup {
-	background: #333;
-	/* Or your inventory's background */
-	padding: 20px;
-	border-radius: 8px;
-	box-shadow: 0 0 15px rgba(0, 0, 0, 0.7);
-	color: white;
-	min-width: 250px;
-	text-align: center;
+    background: var(--surface-container-high, #2b2930); /* Use a high surface container from your theme */
+    color: var(--on-surface, #e6e1e5);
+    padding: 25px 30px; /* Increased padding for better spacing */
+    border-radius: var(--radius-medium, 12px); /* Use your theme's medium radius */
+    box-shadow: 0px 8px 24px rgba(0, 0, 0, 0.25), 0px 4px 8px rgba(0, 0, 0, 0.2); /* Softer, more modern shadow */
+    min-width: 280px; /* Slightly wider */
+    max-width: 320px;
+    text-align: center;
+    border: 1px solid var(--outline-variant, #49454f); /* Subtle border */
 }
 
 .quantity-popup h4 {
-	margin-top: 0;
-	margin-bottom: 15px;
+    font-family: var(--font-primary, "Exo 2", sans-serif);
+    font-weight: var(--font-weight-medium, 500); /* Medium weight for title */
+    font-size: 1.1em; /* Adjust as needed */
+    margin-top: 0;
+    margin-bottom: 10px; /* Reduced margin */
+    color: var(--on-surface, #e6e1e5);
+}
+
+.quantity-popup p { /* Style for "Enter quantity:" text */
+    font-family: var(--font-primary, "Exo 2", sans-serif);
+    font-size: 0.9em;
+    margin-bottom: 15px; /* Spacing before input */
+    color: var(--on-surface-variant, #79747e); /* Slightly muted color for helper text */
 }
 
 .quantity-popup input[type="number"] {
-	width: 80%;
-	padding: 8px;
-	margin-bottom: 15px;
-	box-sizing: border-box;
-	text-align: center;
+    width: 100%; /* Full width within padding */
+    padding: 12px 10px; /* Comfortable padding */
+    margin-bottom: 25px; /* More space before buttons */
+    box-sizing: border-box;
+    text-align: center;
+    font-family: var(--font-primary, "Exo 2", sans-serif);
+    font-size: 1.1em;
+    color: var(--on-surface, #e6e1e5);
+    background-color: var(--surface-container-lowest, #0f0d13); /* Darker input background */
+    border: 1px solid var(--outline-variant, #49454f); /* Subtle border */
+    border-radius: var(--radius-small, 8px); /* Consistent rounding */
+    outline: none;
+    appearance: textfield; /* Remove spinners in Chrome/Edge/Safari */
+    -moz-appearance: textfield; /* Remove spinners in Firefox */
+}
+
+.quantity-popup input[type="number"]:focus {
+    border-color: var(--primary, #f44336); /* Highlight with primary color on focus */
+    box-shadow: 0 0 0 2px rgba(var(--primary-rgb, 244, 67, 54), 0.3); /* Optional: subtle focus ring (needs --primary-rgb or direct rgba) */
+}
+
+/* Remove default spinners for Webkit (Chrome, Safari, Edge) */
+.quantity-popup input[type="number"]::-webkit-outer-spin-button,
+.quantity-popup input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.quantity-popup .popup-buttons {
+    display: flex;
+    justify-content: space-between; /* Or 'flex-end' if you prefer buttons to the right */
+    gap: 10px; /* Space between buttons */
 }
 
 .quantity-popup .popup-buttons button {
-	padding: 8px 15px;
-	margin: 0 5px;
-	cursor: pointer;
+    font-family: var(--font-primary, "Exo 2", sans-serif);
+    font-weight: var(--font-weight-medium, 500);
+    font-size: 0.9em;
+    padding: 10px 0; /* Vertical padding, width will be flexed */
+    flex-grow: 1; /* Make buttons share space equally */
+    border: none;
+    border-radius: var(--radius-small, 8px);
+    cursor: pointer;
+    transition: background-color 0.2s ease, opacity 0.2s ease;
+    text-transform: uppercase; /* Optional: for a more button-like feel */
+    letter-spacing: 0.5px; /* Optional */
+}
+
+/* Primary Button (OK) */
+.quantity-popup .popup-buttons button:first-of-type { /* Assuming OK is the first button */
+    background-color: var(--primary, #f44336);
+    color: var(--on-primary, #ffffff);
+}
+
+.quantity-popup .popup-buttons button:first-of-type:hover {
+    background-color: var(--secondary, #d32f2f); /* Or a slightly darker shade of primary */
+}
+
+/* Secondary/Cancel Button */
+.quantity-popup .popup-buttons button:last-of-type { /* Assuming Cancel is the last button */
+    background-color: var(--surface-container-highest, #36343b); /* A higher surface for contrast */
+    color: var(--on-surface, #e6e1e5);
+    border: 1px solid var(--outline, #49454f); /* Subtle border for secondary */
+}
+
+.quantity-popup .popup-buttons button:last-of-type:hover {
+    background-color: var(--surface-container-high, #2b2930); /* Slightly lighter on hover */
+    border-color: var(--outline-variant, #79747e);
 }
