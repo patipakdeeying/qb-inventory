@@ -135,7 +135,7 @@ const InventoryContainer = Vue.createApp({
                 //
                 showQuantityPopup: false,
                 itemToMove: null,         // To store the item being considered for moving
-                popupTransferAmount: 1,
+                popupTransferAmount: null,
                 //
                 dragDropPendingData: null,
             };
@@ -265,7 +265,7 @@ const InventoryContainer = Vue.createApp({
                 return; // Don't show popup if not applicable
             }
             this.itemToMove = item;
-            this.popupTransferAmount = 1; // Default to 1 or Math.min(1, item.amount) if you prefer
+            this.popupTransferAmount = null; // Default to 1 or Math.min(1, item.amount) if you prefer
             this.showQuantityPopup = true;
             this.showContextMenu = false; // Hide the main context menu
         },
@@ -303,7 +303,7 @@ const InventoryContainer = Vue.createApp({
         cancelMoveQuantity() {
             this.showQuantityPopup = false;
             this.itemToMove = null;
-            this.popupTransferAmount = 1;
+            this.popupTransferAmount = null;
             if (this.dragDropPendingData) { 
                 console.log("[cancelMoveQuantity] Popup was for a drag operation. Clearing main drag data.");
                 this.clearDragData(); // This resets currentlyDraggingItem, currentlyDraggingSlot, etc.

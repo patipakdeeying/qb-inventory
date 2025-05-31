@@ -218,8 +218,13 @@
             <div class="quantity-popup-overlay" v-if="showQuantityPopup">
                 <div class="quantity-popup">
                     <h4>Move {{ itemToMove?.label }}</h4>
-                    <p>Enter quantity:</p>
-                    <input type="number" v-model.number="popupTransferAmount" min="1" :max="itemToMove?.amount" ref="quantityPopupInput" @keydown.enter="confirmMoveQuantity" @keydown.esc="cancelMoveQuantity" />
+                    <input type="number" 
+                           v-model.number="popupTransferAmount" 
+                           min="1" 
+                           :max="itemToMove?.amount" 
+                           ref="quantityPopupInput" 
+                           placeholder="Enter quantity..."   имущество @keydown.enter="confirmMoveQuantity" 
+                           @keydown.esc="cancelMoveQuantity" />
                     <div class="popup-buttons">
                         <button @click="confirmMoveQuantity">OK</button>
                         <button @click="cancelMoveQuantity">Cancel</button>
