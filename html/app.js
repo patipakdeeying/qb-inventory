@@ -222,9 +222,7 @@ const InventoryContainer = Vue.createApp({
             event.preventDefault();
             const itemInSlot = this.getItemInSlot(slot, inventory);
             if (event.button === 0) {
-                if (event.shiftKey && itemInSlot) {
-                    this.splitAndPlaceItem(itemInSlot, inventory);
-                } else {
+                if (itemInSlot) {
                     this.startDrag(event, slot, inventory);
                 }
             } else if (event.button === 2 && itemInSlot) {
@@ -232,11 +230,7 @@ const InventoryContainer = Vue.createApp({
                     this.handlePurchase(slot, itemInSlot.slot, itemInSlot, 1);
                     return;
                 }
-                if (!this.isOtherInventoryEmpty) {
-                    this.moveItemBetweenInventories(itemInSlot, inventory);
-                } else {
-                    this.showContextMenuOptions(event, itemInSlot);
-                }
+                this.showContextMenuOptions(event, itemInSlot);
             }
         },
         moveItemBetweenInventories(item, sourceInventoryType) {
