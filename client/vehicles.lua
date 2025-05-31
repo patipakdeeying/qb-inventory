@@ -30,48 +30,41 @@ end
 
 QBCore.Functions.CreateClientCallback('qb-inventory:client:vehicleCheck', function(cb)
     local ped = PlayerPedId()
-    local inVehicle = GetVehiclePedIsIn(ped, false)
 
-    if inVehicle ~= 0 then -- Glovebox
+    -- Glovebox
+    local inVehicle = GetVehiclePedIsIn(ped, false)
+    if inVehicle ~= 0 then
         local plate = GetVehicleNumberPlateText(inVehicle)
         local class = GetVehicleClass(inVehicle)
         local modelHash = GetEntityModel(inVehicle)
-        local modelName = GetDisplayNameFromVehicleModel(modelHash)
+        local modelName = GetDisplayNameFromVehicleModel(modelHash):lower() -- Get model name and lowercase it
         local inventory = 'glovebox-' .. plate
-        print(string.format("[QB-Inv Client] Glovebox Check: ID=%s, Class=%s, Model=%s", inventory, class, modelName))
-        cb(inventory, class, modelName) -- Added modelName
+        cb(inventory, class, modelName) -- Pass modelName to the callback
         return
     end
 
+    -- Trunk
     local vehicle, distance = QBCore.Functions.GetClosestVehicle()
-    if vehicle ~= 0 and distance < 5 then -- Trunk
+    if vehicle ~= 0 and distance < 5 then
         local pos = GetEntityCoords(ped)
         local dimensionMin, dimensionMax = GetModelDimensions(GetEntityModel(vehicle))
         local trunkpos = GetOffsetFromEntityInWorldCoords(vehicle, 0.0, (dimensionMin.y), 0.0)
         if BackEngineVehicles[GetEntityModel(vehicle)] then trunkpos = GetOffsetFromEntityInWorldCoords(vehicle, 0.0, (dimensionMax.y), 0.0) end
-        
         if #(pos - trunkpos) < 1.5 then
             if GetVehicleDoorLockStatus(vehicle) < 2 then
-                OpenTrunk(vehicle) -- Assumes OpenTrunk handles animation/door state
+                OpenTrunk(vehicle)
                 local class = GetVehicleClass(vehicle)
-                local plate = GetVehicleNumberPlateText(vehicle)
                 local modelHash = GetEntityModel(vehicle)
-                local modelName = GetDisplayNameFromVehicleModel(modelHash)
+                local modelName = GetDisplayNameFromVehicleModel(modelHash):lower() -- Get model name and lowercase it
+                local plate = GetVehicleNumberPlateText(vehicle)
                 local inventory = 'trunk-' .. plate
-                print(string.format("[QB-Inv Client] Trunk Check: ID=%s, Class=%s, Model=%s, LockStatus=%s", inventory, class, modelName, GetVehicleDoorLockStatus(vehicle)))
-                cb(inventory, class, modelName) -- Added modelName
+                cb(inventory, class, modelName) -- Pass modelName to the callback
             else
                 QBCore.Functions.Notify(Lang:t('notify.vlocked'), 'error')
-                cb(nil) -- Explicitly call back with nil if locked
-                return
+                cb(nil) -- Ensure cb is called even on failure to prevent hangs
             end
-        else
-             cb(nil) -- Not close enough to trunk
-             return
+            return -- Added return to ensure cb(nil) below doesn't also fire if trunk was accessed
         end
-    else
-        cb(nil) -- No vehicle found or not in one
-        return
     end
-    cb(nil) -- Default callback if no conditions met
+    cb(nil) -- Default if no vehicle inventory found
 end)

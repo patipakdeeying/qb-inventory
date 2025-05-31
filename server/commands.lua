@@ -1,3 +1,50 @@
+local function GetVehicleStorageDetails(modelName, class, storageType) -- storageType 'trunk' or 'glovebox'
+    -- Debug print to see what values are coming in
+    print("GetVehicleStorageDetails - modelName: " .. tostring(modelName) .. ", class: " .. tostring(class) .. ", storageType: " .. tostring(storageType))
+
+    local modelConfig = VehicleModelStorage and modelName and VehicleModelStorage[modelName:lower()] -- Ensure modelName is lowercased if not already
+    local classConfig = VehicleStorage and VehicleStorage[class]
+    local defaultConfig = VehicleStorage and VehicleStorage.default
+
+    local slots, weight
+
+    if storageType == 'trunk' then
+        if modelConfig and modelConfig.trunkSlots ~= nil and modelConfig.trunkWeight ~= nil then
+            --print("GetVehicleStorageDetails - Using MODEL config for TRUNK: " .. modelName)
+            slots = modelConfig.trunkSlots
+            weight = modelConfig.trunkWeight
+        elseif classConfig and classConfig.trunkSlots ~= nil and classConfig.trunkWeight ~= nil then
+            -- print("GetVehicleStorageDetails - Using CLASS config for TRUNK: " .. class)
+            slots = classConfig.trunkSlots
+            weight = classConfig.trunkWeight
+        elseif defaultConfig then
+            -- print("GetVehicleStorageDetails - Using DEFAULT config for TRUNK")
+            slots = defaultConfig.trunkSlots
+            weight = defaultConfig.trunkWeight
+        end
+    elseif storageType == 'glovebox' then
+        if modelConfig and modelConfig.gloveboxSlots ~= nil and modelConfig.gloveboxWeight ~= nil then
+            -- print("GetVehicleStorageDetails - Using MODEL config for GLOVEBOX: " .. modelName)
+            slots = modelConfig.gloveboxSlots
+            weight = modelConfig.gloveboxWeight
+        elseif classConfig and classConfig.gloveboxSlots ~= nil and classConfig.gloveboxWeight ~= nil then
+            -- print("GetVehicleStorageDetails - Using CLASS config for GLOVEBOX: " .. class)
+            slots = classConfig.gloveboxSlots
+            weight = classConfig.gloveboxWeight
+        elseif defaultConfig then
+            -- print("GetVehicleStorageDetails - Using DEFAULT config for GLOVEBOX")
+            slots = defaultConfig.gloveboxSlots
+            weight = defaultConfig.gloveboxWeight
+        end
+    end
+    
+    -- Fallback if no configuration is found at all (shouldn't happen with a default)
+    slots = slots or 0
+    weight = weight or 0
+    -- print("GetVehicleStorageDetails - Resolved: slots=" .. slots .. ", weight=" .. weight)
+    return slots, weight
+end
+
 -- Commands
 
 QBCore.Commands.Add('giveitem', 'Give An Item (Admin Only)', { { name = 'id', help = 'Player ID' }, { name = 'item', help = 'Name of the item (not a label)' }, { name = 'amount', help = 'Amount of items' } }, false, function(source, args)
@@ -116,53 +163,33 @@ RegisterCommand('inventory', function(source)
     if Player(source).state.inv_busy then return end
     local QBPlayer = QBCore.Functions.GetPlayer(source)
     if not QBPlayer then return end
-    if not QBPlayer or QBPlayer.PlayerData.metadata['isdead'] or QBPlayer.PlayerData.metadata['inlaststand'] or QBPlayer.PlayerData.metadata['ishandcuffed'] then return end
-    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventoryName, vehicleClass, vehicleModelName)
-        print(string.format("[QB-Inv Server] Received from VehicleCheck: InvName=%s, Class=%s, Model=%s", tostring(inventoryName), tostring(vehicleClass), tostring(vehicleModelName))) -- Print received values
+    if QBPlayer.PlayerData.metadata['isdead'] or QBPlayer.PlayerData.metadata['inlaststand'] or QBPlayer.PlayerData.metadata['ishandcuffed'] then return end -- Simplified the condition slightly
 
-        if not inventoryName then
-            print("[QB-Inv Server] No inventoryName received, opening player inventory.")
-            return OpenInventory(source) -- Open player inventory if no vehicle inventory identifier
-        end
+    -- MODIFIED: Add modelName to the callback parameters
+    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventory, class, modelName)
+        if not inventory then return OpenInventory(source) end -- Open player inventory if no vehicle inv found
 
-        -- Ensure vehicleModelName and vehicleClass are valid before calling GetVehicleStorageConfig
-        if not vehicleModelName or vehicleClass == nil then
-            print("ERROR: QB-Inventory - Missing modelName or vehicleClass for: " .. inventoryName)
-            QBCore.Functions.Notify(source, "Could not determine vehicle details.", "error")
+        local slots, maxweight -- Declare variables to hold the results
+
+        if inventory:find('trunk-') then
+            -- MODIFIED: Call GetVehicleStorageDetails
+            slots, maxweight = GetVehicleStorageDetails(modelName, class, 'trunk')
+            OpenInventory(source, inventory, {
+                slots = slots,
+                maxweight = maxweight
+                -- label = inventory -- As per our previous discussion to keep label as trunk-PLATE
+            })
+            return
+        elseif inventory:find('glovebox-') then
+            -- MODIFIED: Call GetVehicleStorageDetails
+            slots, maxweight = GetVehicleStorageDetails(modelName, class, 'glovebox')
+            OpenInventory(source, inventory, {
+                slots = slots,
+                maxweight = maxweight
+                -- label = inventory -- As per our previous discussion
+            })
             return
         end
-        
-        local effectiveConfig = GetVehicleStorageConfig(vehicleModelName, vehicleClass)
-        print("[QB-Inv Server] Effective Vehicle Config:", json.encode(effectiveConfig)) -- Check the resolved config
-
-        local inventoryData = {
-            slots = 0,
-            totalItemQuantityLimit = 0, -- Initialize
-            rules = {},
-            type = nil,
-            label = inventoryName -- Or a more friendly label
-        }
-
-        if inventoryName:find('trunk-') then
-            inventoryData.slots = effectiveConfig.trunkSlots
-            inventoryData.totalItemQuantityLimit = effectiveConfig.trunkTotalItemQuantityLimit
-            inventoryData.rules.allowedItems = effectiveConfig.trunkAllowedItems
-            inventoryData.rules.disallowedItems = effectiveConfig.trunkDisallowedItems
-            inventoryData.type = "trunk"
-            inventoryData.label = "Vehicle Trunk" -- Example label
-        elseif inventoryName:find('glovebox-') then
-            inventoryData.slots = effectiveConfig.gloveboxSlots
-            inventoryData.totalItemQuantityLimit = effectiveConfig.gloveboxTotalItemQuantityLimit
-            inventoryData.rules.allowedItems = effectiveConfig.gloveboxAllowedItems
-            inventoryData.rules.disallowedItems = effectiveConfig.gloveboxDisallowedItems
-            inventoryData.type = "glovebox"
-            inventoryData.label = "Glove Compartment" -- Example label
-        else
-            -- Should not happen if inventoryName is from vehicleCheck, but as a fallback
-            QBCore.Functions.Notify(source, "Unknown inventory type.", "error")
-            return
-        end
-        print("[QB-Inv Server] Prepared InventoryData for OpenInventory:", json.encode(inventoryData))
-        OpenInventory(source, inventoryName, inventoryData)
     end)
 end, false)
+

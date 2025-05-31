@@ -1,126 +1,158 @@
+-- Define VehicleModelStorage as a new, separate table at the top level
+VehicleModelStorage = {
+    -- Make sure to use lowercase model names (spawn names)
+    ['italigtb22'] = { 
+        trunkSlots = 3,
+        trunkWeight = 200000, 
+        gloveboxSlots = 2,
+        gloveboxWeight = 1000   
+    },
+    -- Add any other model-specific configurations here, for example:
+    -- ['adder'] = { 
+    --     trunkSlots = 10,
+    --     trunkWeight = 15000,
+    --     gloveboxSlots = 2,
+    --     gloveboxWeight = 1000
+    -- },
+}
+
+-- Define VehicleStorage as its own, separate, top-level table
 VehicleStorage = {
     default = {
-        gloveboxSlots = 5,              -- Max number of different item types/occupied slots
-        gloveboxTotalItemQuantityLimit = 50, -- Max sum of quantities of all items in glovebox
-
-        trunkSlots = 10,
-        trunkTotalItemQuantityLimit = 200,
-
-        gloveboxAllowedItems = nil,
-        gloveboxDisallowedItems = nil,
-        trunkAllowedItems = nil,
-        trunkDisallowedItems = nil,
+        gloveboxSlots = 5,
+        gloveboxWeight = 10000,
+        trunkSlots = 35,
+        trunkWeight = 60000
     },
-
-    categories = {
     [0] = { -- Compacts
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 30,
+        trunkWeight = 38000
     },
     [1] = { -- Sedans
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 40,
+        trunkWeight = 50000
     },
     [2] = { -- SUVs
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 50,
+        trunkWeight = 75000
     },
     [3] = { -- Coupes
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 35,
+        trunkWeight = 42000
     },
     [4] = { -- Muscle
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 30,
+        trunkWeight = 38000
     },
     [5] = { -- Sports Classics
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 25,
+        trunkWeight = 30000
     },
     [6] = { -- Sports
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 25,
+        trunkWeight = 30000
     },
     [7] = { -- Super
-        gloveboxSlots = 5,              -- Max number of different item types/occupied slots
-        gloveboxTotalItemQuantityLimit = 50, -- Max sum of quantities of all items in glovebox
+        gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 10,
-        trunkTotalItemQuantityLimit = 200,
-        gloveboxAllowedItems = nil,
-        gloveboxDisallowedItems = nil,
-        trunkAllowedItems = nil,
-        trunkDisallowedItems = nil,
+        trunkWeight = 30000
     },
     [8] = { -- Motorcycles
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 15,
+        trunkWeight = 15000
     },
     [9] = { -- Off-road
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 35,
+        trunkWeight = 60000
     },
     [12] = { -- Vans
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 35,
+        trunkWeight = 120000
     },
     [13] = { -- Cycles
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 0,
+        trunkWeight = 0
     },
     [14] = { -- Boats
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 50,
+        trunkWeight = 120000
     },
     [15] = { -- Helicopters
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 50,
+        trunkWeight = 120000
     },
     [16] = { -- Planes
         gloveboxSlots = 5,
+        gloveboxWeight = 10000,
         trunkSlots = 50,
+        trunkWeight = 120000
     },
     [17] = { -- service
         gloveboxSlots = 0,
+        gloveboxWeight = 0,
         trunkSlots = 0,
+        trunkWeight = 0
     },
     [18] = { -- Emergency
         gloveboxSlots = 4,
+        gloveboxWeight = 10000,
         trunkSlots = 12,
+        trunkWeight = 150000
     },
     [19] = { -- Military
         gloveboxSlots = 0,
+        gloveboxWeight = 0,
         trunkSlots = 0,
+        trunkWeight = 0
     },
     [20] = { -- Commercial
         gloveboxSlots = 0,
+        gloveboxWeight = 0,
         trunkSlots = 0,
+        trunkWeight = 0
     },
     [21] = { -- trains
         gloveboxSlots = 0,
+        gloveboxWeight = 0,
         trunkSlots = 0,
+        trunkWeight = 0
     },
     [22] = { -- Commercial
         gloveboxSlots = 0,
+        gloveboxWeight = 0,
         trunkSlots = 0,
-    },
-},
-    
-    models = {
-        -- Key is the lowercase vehicle model name string
-        ['italigtb2'] = {
-            gloveboxSlots = 3,              -- Max number of different item types/occupied slots
-            gloveboxTotalItemQuantityLimit = 50, -- Max sum of quantities of all items in glovebox
-            trunkSlots = 2,
-            trunkTotalItemQuantityLimit = 200,
-            gloveboxAllowedItems = nil,
-            gloveboxDisallowedItems = { 'weapon_knife', 'weapon_bat' },
-            trunkAllowedItems = nil,
-            trunkDisallowedItems = { 'weapon_knife', 'weapon_bat' },
-        },
-        -- Add other specific vehicle models
+        trunkWeight = 0
     }
 }
 
+-- Define BackEngineVehicles as its own, separate, top-level table
 BackEngineVehicles = {
     [`ninef`] = true,
     [`adder`] = true,

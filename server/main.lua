@@ -1,6 +1,5 @@
 QBCore = exports['qb-core']:GetCoreObject()
 Inventories = {}
---Drops = {}
 RegisteredShops = {}
 
 CreateThread(function()
@@ -19,21 +18,7 @@ CreateThread(function()
     end)
 end)
 
--- CreateThread(function()
---     while true do
---         for k, v in pairs(Drops) do
---             if v and (v.createdTime + (Config.CleanupDropTime * 60) < os.time()) and not Drops[k].isOpen then
---                 local entity = NetworkGetEntityFromNetworkId(v.entityId)
---                 if DoesEntityExist(entity) then DeleteEntity(entity) end
---                 Drops[k] = nil
---             end
---         end
---         Wait(Config.CleanupDropInterval * 60000)
---     end
--- end)
-
 -- Handlers
-
 AddEventHandler('playerDropped', function()
     for _, inv in pairs(Inventories) do
         if inv.isOpen == source then
@@ -134,6 +119,21 @@ local function checkWeapon(source, item)
     end
 end
 
+local function DeepCopy(orig)
+    local orig_type = type(orig)
+    local copy
+    if orig_type == 'table' then
+        copy = {}
+        for orig_key, orig_value in next, orig, nil do
+            copy[DeepCopy(orig_key)] = DeepCopy(orig_value)
+        end
+        setmetatable(copy, DeepCopy(getmetatable(orig)))
+    else -- number, string, boolean, etc
+        copy = orig
+    end
+    return copy
+end
+
 -- Events
 
 RegisterNetEvent('qb-inventory:server:openVending', function(data)
@@ -161,17 +161,6 @@ RegisterNetEvent('qb-inventory:server:closeInventory', function(inventory)
         Player(targetId).state.inv_busy = false
         return
     end
-    -- if Drops[inventory] then
-    --     Drops[inventory].isOpen = false
-    --     if #Drops[inventory].items == 0 and not Drops[inventory].isOpen then -- if no listeed items in the drop on close
-    --         TriggerClientEvent('qb-inventory:client:removeDropTarget', -1, Drops[inventory].entityId)
-    --         Wait(500)
-    --         local entity = NetworkGetEntityFromNetworkId(Drops[inventory].entityId)
-    --         if DoesEntityExist(entity) then DeleteEntity(entity) end
-    --         Drops[inventory] = nil
-    --     end
-    --     return
-    -- end
     if not Inventories[inventory] then return end
     Inventories[inventory].isOpen = false
     MySQL.prepare('INSERT INTO inventories (identifier, items) VALUES (?, ?) ON DUPLICATE KEY UPDATE items = ?', { inventory, json.encode(Inventories[inventory].items), json.encode(Inventories[inventory].items) })
@@ -239,179 +228,6 @@ RegisterNetEvent('qb-inventory:server:useItem', function(item)
     end
 end)
 
-RegisterNetEvent('qb-inventory:server:DoItemRemoval', function(itemSlot, itemName, amountToRemove)
-    local src = source
-    local QBPlayer = QBCore.Functions.GetPlayer(src) -- Use a different name like QBPlayer for the local object
-
-    if not QBPlayer or not QBPlayer.PlayerData or not QBPlayer.PlayerData.source then
-        print('[qb-inventory] DoItemRemoval: Could not get valid QBPlayer object for source ' .. src)
-        return
-    end
-
-    local playerServerId = QBPlayer.PlayerData.source -- This is the ID to use with the global Player() state accessor
-    local itemInSlot = GetItemBySlot(playerServerId, itemSlot) -- GetItemBySlot is in functions.lua
-
-    if not itemInSlot or itemInSlot.name:lower() ~= itemName:lower() or itemInSlot.amount < amountToRemove then
-        TriggerClientEvent('QBCore:Notify', playerServerId, "Error removing item. Details mismatch or insufficient amount.", "error")
-        print('[qb-inventory] DoItemRemoval: Item validation failed for player ' .. playerServerId .. ' - Slot: ' .. itemSlot .. ' Name: ' .. itemName .. ' Amount: ' .. amountToRemove .. ' Found: ' .. (itemInSlot and json.encode(itemInSlot) or 'nil'))
-        return
-    end
-
-    if RemoveItem(playerServerId, itemName, amountToRemove, itemSlot, "removed_via_menu") then -- RemoveItem is in functions.lua
-        local itemInfo = QBCore.Shared.Items[itemName:lower()]
-        if itemInfo then
-            TriggerClientEvent('qb-inventory:client:ItemBox', playerServerId, itemInfo, 'remove', amountToRemove)
-        end
-        TriggerClientEvent('QBCore:Notify', playerServerId, "Removed " .. amountToRemove .. "x " .. (itemInfo and itemInfo.label or itemName), "success")
-
-        -- Correctly using the GLOBAL Player(sourceId) state accessor function
-        if Player(playerServerId).state and Player(playerServerId).state.inv_busy then
-            TriggerClientEvent('qb-inventory:client:updateInventory', playerServerId)
-            print("[qb-inventory] DoItemRemoval: Sent updateInventory event for player " .. playerServerId .. " because inv_busy was true.")
-        elseif Player(playerServerId).state == nil then
-            print("[qb-inventory] DoItemRemoval: Player(" .. playerServerId .. ").state was nil. Cannot check inv_busy for UI update.")
-        else
-            -- This means Player(playerServerId).state exists, but inv_busy is false or nil
-            print("[qb-inventory] DoItemRemoval: Player(" .. playerServerId .. ").state.inv_busy was false or nil. No inventory update event sent.")
-        end
-    else
-        TriggerClientEvent('QBCore:Notify', playerServerId, "Failed to remove " .. (itemInfo and itemInfo.label or itemName) .. ".", "error")
-    end
-end)
-
-RegisterNetEvent('qb-inventory:server:DoGiveItemToPlayerId', function(itemSlot, itemName, itemInfoParam, amountToGive, targetPlayerServerId)
-    local src = source
-    local SourcePlayer = QBCore.Functions.GetPlayer(src)
-
-    -- Initial checks for source player
-    if not SourcePlayer or SourcePlayer.PlayerData.metadata['isdead'] or SourcePlayer.PlayerData.metadata['inlaststand'] or SourcePlayer.PlayerData.metadata['ishandcuffed'] then
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.cannot_give_now'), 'error')
-        return
-    end
-
-    local TargetPlayer = QBCore.Functions.GetPlayer(tonumber(targetPlayerServerId))
-    if not TargetPlayer then
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.target_not_online'), 'error')
-        return
-    end
-
-    if TargetPlayer.PlayerData.source == src then
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.cannot_give_self'), 'error')
-        return
-    end
-
-    -- Checks for target player
-    if TargetPlayer.PlayerData.metadata['isdead'] or TargetPlayer.PlayerData.metadata['inlaststand'] or TargetPlayer.PlayerData.metadata['ishandcuffed'] then
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.target_cannot_receive'), 'error')
-        return
-    end
-
-    -- Distance Check
-    local sourcePed = GetPlayerPed(src)
-    local targetPed = GetPlayerPed(TargetPlayer.PlayerData.source)
-    local distance = #(GetEntityCoords(sourcePed) - GetEntityCoords(targetPed))
-    if distance > 5.0 then -- Configurable distance
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.too_far_to_give'), 'error')
-        return
-    end
-
-    -- Validate source item and amount
-    local sourceItem = SourcePlayer.Functions.GetItemBySlot(itemSlot) -- Use player function
-    if not sourceItem or sourceItem.name:lower() ~= itemName:lower() or sourceItem.amount < amountToGive then
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.you_dont_have_enough'), 'error')
-        return
-    end
-    
-    local actualItemInfoToGive = sourceItem.info or itemInfoParam or {}
-    local sharedItemData = QBCore.Shared.Items[itemName:lower()] -- For notifications and ItemBox
-
-    -- 1. Remove the intended amount from the source player first
-    if RemoveItem(src, itemName, amountToGive, itemSlot, "Attempting to give to player ID: " .. targetPlayerServerId) then
-        -- 2. Attempt to add the full intended amount to the target player
-        local actualAmountAddedToTarget = AddItem(TargetPlayer.PlayerData.source, itemName, amountToGive, nil, actualItemInfoToGive, "Received from player ID: " .. src)
-
-        if actualAmountAddedToTarget > 0 then
-            -- Items were successfully given to the target (partially or fully)
-            
-            -- Calculate if any items need to be returned to the source
-            local amountNotSuccessfullyGiven = amountToGive - actualAmountAddedToTarget
-            if amountNotSuccessfullyGiven > 0 then
-                -- Try to give back the items that couldn't be transferred to the target
-                local amountReturnedToSource = AddItem(src, itemName, amountNotSuccessfullyGiven, nil, actualItemInfoToGive, "Returned unaccepted items from give attempt")
-                if amountReturnedToSource ~= amountNotSuccessfullyGiven then
-                    -- This is a critical issue: couldn't return all items to source.
-                    print(string.format("CRITICAL QB-INV: Failed to return all unaccepted items to source %s. Item: %s, Tried to return: %d, Actually returned: %d. Items potentially lost.", src, itemName, amountNotSuccessfullyGiven, amountReturnedToSource))
-                    TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.give_partial_return_fail_critical', {item = sharedItemData.label}), 'error')
-                    -- Consider logging this to a special admin log or a failsafe for lost items
-                else
-                    TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.give_partial_items_returned', {amount = amountNotSuccessfullyGiven, item = sharedItemData.label}), 'warning')
-                end
-            end
-
-            -- Trigger animations and notifications for the 'actualAmountAddedToTarget'
-            TriggerClientEvent('qb-inventory:client:giveAnim', src)
-            TriggerClientEvent('qb-inventory:client:ItemBox', src, sharedItemData, 'remove', actualAmountAddedToTarget) -- Show visual removal of what was ACTUALLY given
-            
-            TriggerClientEvent('qb-inventory:client:giveAnim', TargetPlayer.PlayerData.source)
-            TriggerClientEvent('qb-inventory:client:ItemBox', TargetPlayer.PlayerData.source, sharedItemData, 'add', actualAmountAddedToTarget)
-            
-            TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.you_gave_item_success', {amount = actualAmountAddedToTarget, item = sharedItemData.label, target_name = TargetPlayer.PlayerData.charinfo.firstname}), 'success')
-            TriggerClientEvent('QBCore:Notify', TargetPlayer.PlayerData.source, Lang:t('notify.received_item_success', {amount = actualAmountAddedToTarget, item = sharedItemData.label, giver_name = SourcePlayer.PlayerData.charinfo.firstname}), 'success')
-
-        else -- AddItem to target failed completely (actualAmountAddedToTarget was 0)
-            TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.target_could_not_receive_item', {item_name = sharedItemData.label}), 'error')
-            -- Must try to return all initially removed items to the source player
-            local amountReturnedToSource = AddItem(src, itemName, amountToGive, itemSlot, actualItemInfoToGive, "Returned all items from failed give attempt (target couldn't receive)")
-            if amountReturnedToSource ~= amountToGive then
-                print(string.format("CRITICAL QB-INV: Failed to return ALL items to source %s after target AddItem failed. Item: %s, Amount to return: %d, Actually returned: %d. Items potentially lost.", src, itemName, amountToGive, amountReturnedToSource))
-                TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.give_full_return_fail_critical', {item = sharedItemData.label}), 'error')
-                -- Consider logging this to a special admin log or a failsafe for lost items
-            else
-                -- Items fully returned to source, no effective change for source other than failed attempt.
-                -- No ItemBox for removal needed for source as it was all returned.
-                TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.give_items_returned_to_you', {item_name = sharedItemData.label}), 'info')
-            end
-        end
-        
-        -- Update UIs for both players if their inventory was open
-        if Player(TargetPlayer.PlayerData.source).state and Player(TargetPlayer.PlayerData.source).state.inv_busy then
-            TriggerClientEvent('qb-inventory:client:updateInventory', TargetPlayer.PlayerData.source)
-        end
-        if Player(src).state and Player(src).state.inv_busy then
-            TriggerClientEvent('qb-inventory:client:updateInventory', src)
-        end
-    else
-        -- Failed to remove the item from the source player initially
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.failed_to_remove_for_give'), 'error')
-    end
-end)
-
--- RegisterNetEvent('qb-inventory:server:openDrop', function(dropId)
---     local src = source
---     local Player = QBCore.Functions.GetPlayer(src)
---     if not Player then return end
---     local playerPed = GetPlayerPed(src)
---     local playerCoords = GetEntityCoords(playerPed)
---     local drop = Drops[dropId]
---     if not drop then return end
---     if drop.isOpen then return end
---     local distance = #(playerCoords - drop.coords)
---     if distance > 2.5 then return end
---     local formattedInventory = {
---         name = dropId,
---         label = dropId,
---         maxweight = drop.maxweight,
---         slots = drop.slots,
---         inventory = drop.items
---     }
---     drop.isOpen = true
---     TriggerClientEvent('qb-inventory:client:openInventory', source, Player.PlayerData.items, formattedInventory)
--- end)
-
--- RegisterNetEvent('qb-inventory:server:updateDrop', function(dropId, coords)
---     Drops[dropId].coords = coords
--- end)
-
 RegisterNetEvent('qb-inventory:server:snowball', function(action)
     if action == 'add' then
         AddItem(source, 'weapon_snowball', 1, false, false, 'qb-inventory:server:snowball')
@@ -421,54 +237,6 @@ RegisterNetEvent('qb-inventory:server:snowball', function(action)
 end)
 
 -- Callbacks
-
-QBCore.Functions.CreateCallback('qb-inventory:server:GetCurrentDrops', function(_, cb)
-    cb(Drops)
-end)
-
--- QBCore.Functions.CreateCallback('qb-inventory:server:createDrop', function(source, cb, item)
---     local src = source
---     local Player = QBCore.Functions.GetPlayer(src)
---     if not Player then
---         cb(false)
---         return
---     end
---     local playerPed = GetPlayerPed(src)
---     local playerCoords = GetEntityCoords(playerPed)
---     if RemoveItem(src, item.name, item.amount, item.fromSlot, 'dropped item') then
---         if item.type == 'weapon' then checkWeapon(src, item) end
---         TaskPlayAnim(playerPed, 'pickup_object', 'pickup_low', 8.0, -8.0, 2000, 0, 0, false, false, false)
---         local bag = CreateObjectNoOffset(Config.ItemDropObject, playerCoords.x + 0.5, playerCoords.y + 0.5, playerCoords.z, true, true, false)
---         local dropId = NetworkGetNetworkIdFromEntity(bag)
---         local newDropId = 'drop-' .. dropId
---         local itemsTable = setmetatable({ item }, {
---             __len = function(t)
---                 local length = 0
---                 for _ in pairs(t) do length += 1 end
---                 return length
---             end
---         })
---         if not Drops[newDropId] then
---             Drops[newDropId] = {
---                 name = newDropId,
---                 label = 'Drop',
---                 items = itemsTable,
---                 entityId = dropId,
---                 createdTime = os.time(),
---                 coords = playerCoords,
---                 maxweight = Config.DropSize.maxweight,
---                 slots = Config.DropSize.slots,
---                 isOpen = true
---             }
---             TriggerClientEvent('qb-inventory:client:setupDropTarget', -1, dropId)
---         else
---             table.insert(Drops[newDropId].items, item)
---         end
---         cb(dropId)
---     else
---         cb(false)
---     end
--- end)
 
 QBCore.Functions.CreateCallback('qb-inventory:server:attemptPurchase', function(source, cb, data)
     local itemInfo = data.item
@@ -608,10 +376,10 @@ local function getItem(inventoryId, src, slot)
         if targetPlayer and targetPlayer.PlayerData.items then
             items = targetPlayer.PlayerData.items
         end
-    -- elseif inventoryId:find('drop-') == 1 then
-    --     if Drops[inventoryId] and Drops[inventoryId]['items'] then
-    --         items = Drops[inventoryId]['items']
-    --     end
+    elseif inventoryId:find('drop-') == 1 then
+        if Drops[inventoryId] and Drops[inventoryId]['items'] then
+            items = Drops[inventoryId]['items']
+        end
     else
         if Inventories[inventoryId] and Inventories[inventoryId]['items'] then
             items = Inventories[inventoryId]['items']
@@ -636,143 +404,261 @@ local function getIdentifier(inventoryId, src)
     end
 end
 
-RegisterNetEvent('qb-inventory:server:SetInventoryData', function(fromInventory, toInventory, fromSlot, toSlot, fromAmount, toAmount)
-    if toInventory:find('shop%-') then return end
-    if not fromInventory or not toInventory or not fromSlot or not toSlot or not fromAmount or not toAmount then return end
+RegisterNetEvent('qb-inventory:server:SetInventoryData', function(fromInventory, toInventory, fromSlot, toSlot, fromAmountOriginal, amountToTransfer)
+    -- fromAmountOriginal is the original stack size in fromSlot (sent by client as 'fromAmount').
+    -- amountToTransfer is the amount the user actually wants to move (sent by client as 'toAmount').
+
+    if toInventory:find('shop%-') then return end -- Cannot move items into a shop like this
+    if not fromInventory or not toInventory or not fromSlot or not toSlot or amountToTransfer == nil then
+        print("SetInventoryData: Missing parameters")
+        return
+    end
+
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
 
-    fromSlot, toSlot, fromAmount, toAmount = tonumber(fromSlot), tonumber(toSlot), tonumber(fromAmount), tonumber(toAmount)
+    fromSlot, toSlot = tonumber(fromSlot), tonumber(toSlot)
+    amountToTransfer = tonumber(amountToTransfer)
 
-    -- --- START OF NEW LOGIC FOR INTERNAL PLAYER INVENTORY MOVES ---
-    -- This block handles moving items *within* the same player inventory (including hotbar slots).
-    -- It bypasses AddItem/RemoveItem to prevent "stack full" errors on relocations.
-    if fromInventory == 'player' and toInventory == 'player' then
-        local playerInventory = Player.PlayerData.items
-        local movingItem = playerInventory[fromSlot]
-        local targetSlotItem = playerInventory[toSlot] -- Item currently in the target slot
-
-        if not movingItem then
-            print('SetInventoryData: [Internal Move] No item to move in fromSlot ' .. fromSlot)
-            return
-        end
-
-        -- If trying to move to the same slot, do nothing
-        if fromSlot == toSlot then
-            return
-        end
-
-        -- Scenario 1: Moving to an empty slot (most common for manual hotbar placement)
-        if not targetSlotItem then
-            playerInventory[toSlot] = movingItem       -- Place item in target slot
-            playerInventory[toSlot].slot = toSlot      -- Update item's slot property
-            playerInventory[fromSlot] = nil            -- Clear the original slot
-            Player.Functions.SetPlayerData('items', playerInventory) -- Update player data
-            return -- Done with this move
-        end
-
-        -- Scenario 2: Stacking on an existing item of the same type
-        -- This applies if you drag item A onto item A in a different slot (and it's not a unique item)
-        if movingItem.name:lower() == targetSlotItem.name:lower() and not movingItem.unique then
-            local effectiveMaxStack = Config.ItemMaxStacks[movingItem.name:lower()] or Config.MaxStack
-            local canAddToStack = effectiveMaxStack - targetSlotItem.amount
-
-            if canAddToStack <= 0 then
-                print('SetInventoryData: [Internal Move] Cannot stack - target stack for ' .. movingItem.name .. ' is full.')
-                -- Client-side UI will typically prevent this, but server check is good.
-                return
-            end
-
-            local amountToStack = math.min(movingItem.amount, canAddToStack)
-            targetSlotItem.amount = targetSlotItem.amount + amountToStack -- Add to target stack
-            movingItem.amount = movingItem.amount - amountToStack         -- Remove from source stack
-
-            if movingItem.amount <= 0 then
-                playerInventory[fromSlot] = nil -- Clear original slot if all moved
-            else
-                playerInventory[fromSlot] = movingItem -- Update original slot if partial move
-            end
-            Player.Functions.SetPlayerData('items', playerInventory)
-            return -- Done
-        end
-
-        -- Scenario 3: Swapping items (target slot is occupied by a different item type, or a unique item)
-        if targetSlotItem then
-            playerInventory[toSlot] = movingItem       -- Place moving item in target slot
-            playerInventory[toSlot].slot = toSlot      -- Update its slot property
-            playerInventory[fromSlot] = targetSlotItem -- Place target item in original slot
-            playerInventory[fromSlot].slot = fromSlot  -- Update its slot property
-            Player.Functions.SetPlayerData('items', playerInventory)
-            return -- Done
-        end
-
-        -- Fallback if something unexpected happened during internal move (shouldn't be hit often)
-        print('SetInventoryData: [Internal Move] Unhandled scenario for ' .. movingItem.name .. ' from ' .. fromSlot .. ' to ' .. toSlot)
+    if amountToTransfer <= 0 then
+        print("SetInventoryData: Transfer amount must be positive.")
+        TriggerClientEvent('QBCore:Notify', src, "Transfer amount must be positive.", 'error')
         return
     end
-    -- --- END OF NEW LOGIC FOR INTERNAL PLAYER INVENTORY MOVES ---
 
-
-    -- --- ORIGINAL LOGIC FOR TRANSFERS BETWEEN DIFFERENT INVENTORIES ---
-    -- (player to stash, stash to player, player to trunk, etc.)
-    -- This block remains largely as is, as it correctly uses AddItem/RemoveItem for external interactions.
     local fromItem = getItem(fromInventory, src, fromSlot)
+
+    if not fromItem then
+        print("SetInventoryData: Source item not found at slot " .. fromSlot .. " in " .. fromInventory)
+        TriggerClientEvent('QBCore:Notify', src, "Source item not found.", 'error')
+        return
+    end
+
+    if amountToTransfer > fromItem.amount then
+        print("SetInventoryData: Attempting to transfer " .. amountToTransfer .. " but only " .. fromItem.amount .. " available in " .. fromItem.name)
+        TriggerClientEvent('QBCore:Notify', src, "Not enough items in source slot to transfer.", 'error')
+        return
+    end
+
     local toItem = getItem(toInventory, src, toSlot)
+    local fromId = getIdentifier(fromInventory, src)
+    local toId = getIdentifier(toInventory, src)
 
-    if fromItem then
-        if not toItem and toAmount > fromItem.amount then return end
-        if fromInventory == 'player' and toInventory ~= 'player' then checkWeapon(src, fromItem) end
-
-        local fromId = getIdentifier(fromInventory, src)
-        local toId = getIdentifier(toInventory, src)
-
-        if toItem and fromItem.name == toItem.name then -- Stacking on existing same item (between inventories)
-            local amountToMove = fromAmount
-            local actualAmountAdded = AddItem(toId, toItem.name, amountToMove, toSlot, toItem.info, 'stacked item')
-            if actualAmountAdded > 0 then
-                RemoveItem(fromId, fromItem.name, actualAmountAdded, fromSlot, 'stacked item')
+    -- ***** NEW: Check if it's an intra-inventory move *****
+    if fromId == toId then
+        print("SetInventoryData: Intra-inventory move for " .. fromId .. " (e.g., player to player). Bypassing CanAddItem capacity checks.")
+        -- For intra-inventory moves, weight/capacity limits of the inventory as a whole don't change.
+        -- We just need to ensure slot mechanics are handled by RemoveItem/AddItem.
+        if RemoveItem(fromId, fromItem.name, amountToTransfer, fromSlot, 'intra-inventory move: source remove') then
+            if not AddItem(toId, fromItem.name, amountToTransfer, toSlot, fromItem.info, 'intra-inventory move: target add') then
+                -- This AddItem might fail due to slot logic issues not related to overall capacity,
+                -- or if the specific slot is somehow problematic.
+                print("SetInventoryData: CRITICAL (Intra-Inv) - AddItem failed after RemoveItem. Attempting rollback.")
+                TriggerClientEvent('QBCore:Notify', src, "Error moving item within inventory. Attempting to restore.", 'error')
+                if not AddItem(fromId, fromItem.name, amountToTransfer, fromSlot, fromItem.info, 'intra-inventory move: critical rollback') then
+                     print("SetInventoryData: ULTRA CRITICAL (Intra-Inv) - Rollback to source also failed. Item '" .. fromItem.name .. "' x" .. amountToTransfer .. " lost within " .. fromId .. ", from slot " .. fromSlot)
+                     TriggerClientEvent('QBCore:Notify', src, "CRITICAL ERROR: Item restoration failed. Item may be lost. Contact admin.", 'error')
+                     TriggerEvent('qb-log:server:CreateLog', 'itemloss', 'INTRA-INV CRITICAL LOSS', 'red',
+                        'Item: ' .. fromItem.name .. 'x' .. amountToTransfer ..
+                        ', Within: ' .. fromId .. ' (Slot ' .. fromSlot .. ' to ' .. toSlot .. ')' ..
+                        ', Player: ' .. GetPlayerName(src) .. '(' .. src .. ') - Rollback Failed')
+                end
             else
-                print('SetInventoryData: Failed to stack ' .. fromItem.name .. ' to target inventory.')
+                -- Successfully moved within the same inventory
+                if fromInventory == 'player' and toInventory ~= 'player' then checkWeapon(src, fromItem) end -- This condition (toInventory ~= 'player') will be false here, so checkWeapon won't run, which is correct for intra-player.
             end
+        else
+            print("SetInventoryData: (Intra-Inv) Failed to remove item from " .. fromId .. ", slot " .. fromSlot)
+            TriggerClientEvent('QBCore:Notify', src, "Could not move item from source slot.", 'error')
+        end
+        return -- IMPORTANT: End execution here for intra-inventory moves
+    end
 
-        elseif not toItem and toAmount < fromAmount then -- Splitting an item to a new slot (between inventories)
-            local amountToMove = toAmount
-            local actualAmountAdded = AddItem(toId, fromItem.name, amountToMove, toSlot, fromItem.info, 'split item')
-            if actualAmountAdded > 0 then
-                RemoveItem(fromId, fromItem.name, actualAmountAdded, fromSlot, 'split item')
-            else
-                print('SetInventoryData: Failed to split ' .. fromItem.name .. ' to new slot.')
-            end
-
-        else -- Swapping items or moving to an empty slot (between inventories)
-            if toItem then -- Swapping items (between inventories)
-                local fromItemAmount = fromItem.amount
-                local toItemAmount = toItem.amount
-
-                local canAddToTarget = AddItem(toId, fromItem.name, fromItemAmount, toSlot, fromItem.info, 'swapped item - check')
-                if canAddToTarget == fromItemAmount then
-                    local canAddBackToSource = AddItem(fromId, toItem.name, toItemAmount, fromSlot, toItem.info, 'swapped item - check back')
-                    if canAddBackToSource == toItemAmount then
-                        RemoveItem(fromId, fromItem.name, fromItemAmount, fromSlot, 'swapped item')
-                        RemoveItem(toId, toItem.name, toItemAmount, toSlot, 'swapped item')
-                        AddItem(toId, fromItem.name, fromItemAmount, toSlot, fromItem.info, 'swapped item')
-                        AddItem(fromId, toItem.name, toItemAmount, fromSlot, toItem.info, 'swapped item')
-                    else
-                        print('SetInventoryData: Swap failed - source cannot fully accept swapped item ' .. toItem.name)
+    -- If fromId ~= toId, proceed with the existing inter-inventory transfer logic (Scenario 1 and 2 from previous response)
+    -- Scenario 1: Moving to an empty slot OR Stacking onto an existing compatible item
+    if not toItem or (toItem and toItem.name == fromItem.name and not QBCore.Shared.Items[fromItem.name:lower()].unique) then
+        local canFit, reason = CanAddItem(toId, fromItem.name, amountToTransfer)
+        if canFit then
+            if RemoveItem(fromId, fromItem.name, amountToTransfer, fromSlot, 'transfer: source remove') then
+                if not AddItem(toId, fromItem.name, amountToTransfer, toSlot, fromItem.info, 'transfer: target add') then
+                    print("SetInventoryData: CRITICAL - AddItem to target failed after RemoveItem. Attempting to return item to source.")
+                    TriggerClientEvent('QBCore:Notify', src, "Error placing item in destination. Attempting to return to source.", 'error')
+                    if not AddItem(fromId, fromItem.name, amountToTransfer, fromSlot, fromItem.info, 'transfer: critical rollback') then
+                        print("SetInventoryData: ULTRA CRITICAL - Rollback to source also failed. Item '" .. fromItem.name .. "' x" .. amountToTransfer .. " lost from " .. fromId .. ", slot " .. fromSlot)
+                        TriggerClientEvent('QBCore:Notify', src, "CRITICAL ERROR: Item return failed. Item may be lost. Contact admin.", 'error')
+                        TriggerEvent('qb-log:server:CreateLog', 'itemloss', 'CRITICAL ITEM LOSS', 'red',
+                            'Item: ' .. fromItem.name .. 'x' .. amountToTransfer ..
+                            ', From: ' .. fromId .. ' (Slot ' .. fromSlot .. ')' ..
+                            ', To: ' .. toId .. ' (Slot ' .. toSlot .. ')' ..
+                            ', Player: ' .. GetPlayerName(src) .. '(' .. src .. ') - Rollback Failed')
                     end
                 else
-                    print('SetInventoryData: Swap failed - target cannot fully accept item ' .. fromItem.name)
+                    if fromInventory == 'player' and toInventory ~= 'player' then checkWeapon(src, fromItem) end
                 end
-            else -- Moving to an empty slot (between inventories)
-                local amountToMove = toAmount
-                local actualAmountAdded = AddItem(toId, fromItem.name, amountToMove, toSlot, fromItem.info, 'moved item')
-                if actualAmountAdded > 0 then
-                    RemoveItem(fromId, fromItem.name, actualAmountAdded, fromSlot, 'moved item')
+            else
+                print("SetInventoryData: Failed to remove item from source inventory " .. fromId .. ", slot " .. fromSlot)
+                TriggerClientEvent('QBCore:Notify', src, "Could not take item from source.", 'error')
+            end
+        else
+            local itemLabel = QBCore.Shared.Items[fromItem.name:lower()].label or fromItem.name
+            local notification = "Cannot place " .. itemLabel .. " there."
+            if reason == 'total_weight_limit' then
+                notification = "Target inventory is too full (weight)."
+            elseif reason == 'item_specific_weight_limit' then
+                notification = "Target inventory cannot hold more of " .. itemLabel .. " (specific limit)."
+            elseif reason == 'slot_limit' then
+                notification = "Target inventory has no free slots."
+            elseif reason == 'invalid_item' then
+                notification = "The item being moved is invalid."
+            elseif reason == 'invalid_amount' then
+                notification = "Invalid amount for transfer."
+            elseif reason then
+                 notification = "Cannot place item: " .. reason
+            end
+            TriggerClientEvent('QBCore:Notify', src, notification, 'error')
+            print("SetInventoryData: CanAddItem failed for '" .. fromItem.name .. "' to '" .. toId .. "'. Reason: " .. (reason or 'unknown'))
+        end
+
+    -- Scenario 2: Swapping different items (toItem exists and is different from fromItem.name)
+    elseif toItem and toItem.name ~= fromItem.name then
+        -- This is your existing swap logic from the file you uploaded, which uses CanAddItemWithReplacement
+        -- Ensure this part is also robust, though the primary issue reported was for simple moves.
+        print("SetInventoryData: Initiating SWAP between " .. fromItem.name .. " and " .. toItem.name)
+        local movingFromItem = DeepCopy(fromItem)
+        movingFromItem.amount = amountToTransfer
+        local movingToItem = DeepCopy(toItem)
+
+        local canTargetFitInSource, reasonTargetFit = CanAddItemWithReplacement(fromId, movingToItem.name, movingToItem.amount, fromSlot, movingFromItem)
+        local canSourceFitInTarget, reasonSourceFit = CanAddItemWithReplacement(toId, movingFromItem.name, movingFromItem.amount, toSlot, movingToItem)
+
+        if canSourceFitInTarget and canTargetFitInSource then
+            local originalFromItemState = DeepCopy(fromItem)
+            local originalToItemState = DeepCopy(toItem)
+            if RemoveItem(fromId, originalFromItemState.name, amountToTransfer, fromSlot, 'swap: remove original from source') then
+                if RemoveItem(toId, originalToItemState.name, originalToItemState.amount, toSlot, 'swap: remove original from target') then
+                    local addedSourceToTarget = AddItem(toId, originalFromItemState.name, amountToTransfer, toSlot, originalFromItemState.info, 'swap: add fromItem to target slot')
+                    local addedTargetToSource = AddItem(fromId, originalToItemState.name, originalToItemState.amount, fromSlot, originalToItemState.info, 'swap: add toItem to source slot')
+                    if not (addedSourceToTarget and addedTargetToSource) then
+                        print("SetInventoryData: CRITICAL - Swap failed during AddItem phase. Attempting complex rollback.")
+                        TriggerClientEvent('QBCore:Notify', src, "Swap failed. Attempting to restore items.", 'error')
+                        if not addedSourceToTarget then
+                            AddItem(fromId, originalFromItemState.name, amountToTransfer, fromSlot, originalFromItemState.info, 'swap_rollback: fromItem to source')
+                        end
+                        if not addedTargetToSource then
+                            AddItem(toId, originalToItemState.name, originalToItemState.amount, toSlot, originalToItemState.info, 'swap_rollback: toItem to target')
+                        end
+                    else
+                        print("SetInventoryData: SWAP successful.")
+                        if fromInventory == 'player' and toInventory ~= 'player' then checkWeapon(src, originalFromItemState) end
+                        if toInventory == 'player' and fromInventory ~= 'player' then checkWeapon(src, originalToItemState) end
+                    end
                 else
-                    print('SetInventoryData: Failed to move ' .. fromItem.name .. ' to empty slot.')
+                    print("SetInventoryData: Swap failed - Could not remove item from target slot. Rolling back source item.")
+                    AddItem(fromId, originalFromItemState.name, amountToTransfer, fromSlot, originalFromItemState.info, 'swap_rollback: fromItem (target remove failed)')
+                    TriggerClientEvent('QBCore:Notify', src, "Swap failed (target item stuck).", 'error')
+                end
+            else
+                print("SetInventoryData: Swap failed - Could not remove item from source slot.")
+                TriggerClientEvent('QBCore:Notify', src, "Swap failed (source item stuck).", 'error')
+            end
+        else
+            local notification = "Cannot swap items: "
+            if not canSourceFitInTarget then notification = notification .. "Dragged item won't fit in target slot ("..(reasonSourceFit or "check failed").."). " end
+            if not canTargetFitInSource then notification = notification .. "Item from target slot won't fit back ("..(reasonTargetFit or "check failed")..")." end
+            TriggerClientEvent('QBCore:Notify', src, notification, 'error')
+            print("SetInventoryData (Swap): Pre-check failed. SourceFitReason: "..(reasonSourceFit or "N/A").."; TargetFitReason: "..(reasonTargetFit or "N/A"))
+        end
+    else
+        print("SetInventoryData: Unhandled item transfer condition for fromSlot: "..fromSlot..", toSlot: "..toSlot)
+        TriggerClientEvent('QBCore:Notify', src, "Unknown inventory action error.", 'error')
+    end
+end)
+
+-- This new helper function would ideally be in functions.lua or local to main.lua if only used here.
+-- It's a conceptual CanAddItem, but it simulates removing an item from the target inventory first.
+function CanAddItemWithReplacement(inventoryId, itemNameToAdd, amountToAdd, targetSlotForNewItem, itemCurrentlyInTargetSlot)
+    local Player = QBCore.Functions.GetPlayer(inventoryId)
+    local itemDataToAdd = QBCore.Shared.Items[itemNameToAdd:lower()]
+
+    if not itemDataToAdd then return false, 'invalid_item_to_add' end
+    amountToAdd = tonumber(amountToAdd) or 1
+    if amountToAdd <= 0 then return false, 'invalid_amount' end
+
+    local originalItems, maxWeight, maxSlots
+    if Player then
+        originalItems = Player.PlayerData.items
+        maxWeight = Config.MaxWeight
+        maxSlots = Config.MaxSlots
+    elseif Inventories[inventoryId] then
+        originalItems = Inventories[inventoryId].items
+        maxWeight = Inventories[inventoryId].maxweight
+        maxSlots = Inventories[inventoryId].slots
+    elseif Drops and Drops[inventoryId] then
+        originalItems = Drops[inventoryId].items
+        maxWeight = Drops[inventoryId].maxweight
+        maxSlots = Drops[inventoryId].slots
+    else
+        return false, 'invalid_target_inventory'
+    end
+
+    -- Create a temporary inventory state *as if* itemCurrentlyInTargetSlot was removed
+    local tempItems = DeepCopy(originalItems)
+    if itemCurrentlyInTargetSlot and tempItems[targetSlotForNewItem] and tempItems[targetSlotForNewItem].name == itemCurrentlyInTargetSlot.name then
+        tempItems[targetSlotForNewItem] = nil -- Simulate removal
+    end
+    -- Note: If itemCurrentlyInTargetSlot is nil (target slot was empty), tempItems is just a copy of originalItems.
+
+    -- Now, check if itemNameToAdd can fit into this tempItems state
+    -- 1. Overall weight check
+    local weightOfItemToAdd = itemDataToAdd.weight * amountToAdd
+    local currentTotalWeightOfTemp = GetTotalWeight(tempItems)
+    if currentTotalWeightOfTemp + weightOfItemToAdd > maxWeight then
+        return false, 'total_weight_limit'
+    end
+
+    -- 2. Item-specific weight check (ONLY FOR PLAYER INVENTORY)
+    if Player and Config.ItemSpecificMaxWeights and Config.ItemSpecificMaxWeights[itemNameToAdd:lower()] then -- Check Config.ItemSpecificMaxWeights exists
+        local currentSpecificItemWeight = 0
+        for _, invItem in pairs(tempItems) do
+            if invItem and invItem.name:lower() == itemNameToAdd:lower() then -- check invItem exists
+                currentSpecificItemWeight = currentSpecificItemWeight + (invItem.weight * invItem.amount)
+            end
+        end
+        if currentSpecificItemWeight + weightOfItemToAdd > Config.ItemSpecificMaxWeights[itemNameToAdd:lower()] then
+            return false, 'item_specific_weight_limit'
+        end
+    end
+
+    -- 3. Slot check
+    local needsNewSlotInTemp = true
+    if not itemDataToAdd.unique then
+        for slotKey, invItem in pairs(tempItems) do
+            if invItem and invItem.name:lower() == itemNameToAdd:lower() then
+                 -- If a stack already exists (not in the targetSlotForNewItem, which is now simulated as empty or was already empty)
+                if slotKey ~= targetSlotForNewItem then
+                    needsNewSlotInTemp = false
+                    break
                 end
             end
         end
+         -- If we are adding to targetSlotForNewItem (which is now notionally available), it doesn't strictly need a *new* slot beyond that one.
+        if tempItems[targetSlotForNewItem] == nil then needsNewSlotInTemp = false; end
     end
-end)
+
+
+    if needsNewSlotInTemp then -- This means item is unique OR no existing stack AND targetSlotForNewItem was NOT made available/suitable.
+        local slotsUsedInTemp = 0
+        for _, itemVal in pairs(tempItems) do if itemVal then slotsUsedInTemp = slotsUsedInTemp + 1 end end
+
+        -- If targetSlotForNewItem was originally occupied, removing it freed one slot.
+        -- So, if slotsUsedInTemp (after removal) >= maxSlots, it means even with the freed slot, we are full.
+        if itemCurrentlyInTargetSlot and slotsUsedInTemp >= maxSlots then
+             return false, 'slot_limit'
+        elseif not itemCurrentlyInTargetSlot and slotsUsedInTemp >= maxSlots then
+             -- Target slot was empty, and we still need a new slot, but inventory is full.
+             return false, 'slot_limit'
+        end
+    end
+    return true
+end

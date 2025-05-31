@@ -1,22 +1,39 @@
 Config = {
     UseTarget = GetConvar('UseTarget', 'false') == 'true',
 
+    MaxWeight = 120000,
     MaxSlots = 40,
-    MaxStack = 64,
-    HotbarSlots = 5,
-
-    ItemMaxStacks = {
-        ['water_bottle'] = 10,  -- Water bottles will stack up to 10
-        ['tosti'] = 30,         -- Bread will stack up to 30
+    ItemSpecificMaxWeights = {
+    -- Item name should be lowercase
+    -- Weights are typically in grams in qb-core, adjust if your setup differs
+    ['water_bottle'] = 20000, -- Example: Player can carry a maximum of 20,000g (20kg) of iron_ore
+    ['tosti'] = 15000,  -- Example: Player can carry a maximum of 5,000g (5kg) of gold_bars
+    -- Add other items and their specific max weights here
     },
 
     StashSize = {
+        maxweight = 2000000,
         slots = 100
+    },
+
+    DropSize = {
+        maxweight = 1000000,
+        slots = 50
     },
 
     Keybinds = {
         Open = 'TAB',
         Hotbar = 'Z',
+    },
+
+    CleanupDropTime = 15,    -- in minutes
+    CleanupDropInterval = 1, -- in minutes
+
+    ItemDropObject = `bkr_prop_duffel_bag_01a`,
+    ItemDropObjectBone = 28422,
+    ItemDropObjectOffset = {
+        vector3(0.260000, 0.040000, 0.000000),
+        vector3(90.000000, 0.000000, -78.989998),
     },
 
     VendingObjects = {
