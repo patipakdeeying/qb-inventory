@@ -327,109 +327,155 @@ const InventoryContainer = Vue.createApp({
             }
         },
         moveItemBetweenInventories(item, sourceInventoryType, quantityToTransfer) {
-            console.log("[moveItemBetweenInventories] Attempting to move:", item, "From:", sourceInventoryType, "Qty:", quantityToTransfer); // Debug line
+    console.log(`[MOVING ITEM VIA MENU] START -----------`);
+    console.log(`[MOVING ITEM VIA MENU] Item To Move (Original): ${item.name} (Slot ${item.slot}), Amount Attempting: ${quantityToTransfer}, From Source Type: ${sourceInventoryType}`);
+    console.log(`[MOVING ITEM VIA MENU] Full Item Details:`, JSON.parse(JSON.stringify(item)));
 
-            const sourceInventory = sourceInventoryType === "player" ? this.playerInventory : this.otherInventory;
-            const targetInventory = sourceInventoryType === "player" ? this.otherInventory : this.playerInventory;
-            const currentTargetWeight = sourceInventoryType === "player" ? this.otherInventoryWeight : this.playerWeight; // This is the current weight of the whole target inventory
-            const maxTargetWeight = sourceInventoryType === "player" ? this.otherInventoryMaxWeight : this.maxWeight;
-            const amountToTransfer = quantityToTransfer;
+    const sourceInventory = sourceInventoryType === "player" ? this.playerInventory : this.otherInventory;
+    const targetInventory = sourceInventoryType === "player" ? this.otherInventory : this.playerInventory;
+    const targetInventoryIsPlayer = targetInventory === this.playerInventory;
 
-            const sourceItem = sourceInventory[item.slot];
+    console.log(`[MOVING ITEM VIA MENU] Source Inventory Is: ${sourceInventoryType}`);
+    console.log(`[MOVING ITEM VIA MENU] Target Inventory Will Be: ${targetInventoryIsPlayer ? 'player' : 'other'}`);
 
-            if (!sourceItem || sourceItem.amount < amountToTransfer) {
-                this.inventoryError(item.slot);
-                console.error("[moveItemBetweenInventories] Error: Not enough items in source slot or sourceItem not found.");
+    const currentWeightOfTargetInv = targetInventoryIsPlayer ? this.playerWeight : this.otherInventoryWeight;
+    const maxWeightOfTargetInv = targetInventoryIsPlayer ? this.maxWeight : this.otherInventoryMaxWeight;
+    const maxSlotsForTargetInv = targetInventoryIsPlayer ? this.totalSlots : this.otherInventorySlots;
+
+    console.log(`[MOVING ITEM VIA MENU] Target Inv Current W: ${currentWeightOfTargetInv}, Target Inv Max W: ${maxWeightOfTargetInv}, Target Inv Max Slots: ${maxSlotsForTargetInv}`);
+    console.log(`[MOVING ITEM VIA MENU] Player ItemSpecificLimits:`, JSON.parse(JSON.stringify(this.itemSpecificMaxWeights)));
+
+    const amountToTransfer = quantityToTransfer; // Already validated by popup watcher and confirmMoveQuantity
+
+    const sourceItem = sourceInventory[item.slot]; // Get the most current state of the source item
+
+    if (!sourceItem) {
+        console.error("[MOVING ITEM VIA MENU] Error: Source item not found in slot", item.slot, "of", sourceInventoryType, "inventory.");
+        this.inventoryError(item.slot); // Highlight original slot if possible
+        return;
+    }
+    if (sourceItem.amount < amountToTransfer) {
+        console.error(`[MOVING ITEM VIA MENU] Error: Not enough items in source slot. Have: ${sourceItem.amount}, Need: ${amountToTransfer}`);
+        this.inventoryError(item.slot);
+        axios.post(`https://qb-inventory/notify`, { message: `Not enough ${sourceItem.label || sourceItem.name} to move.`, type: 'error' });
+        return;
+    }
+
+    const itemBaseWeight = sourceItem.weight || 0;
+    const weightOfItemsToTransfer = itemBaseWeight * amountToTransfer;
+    console.log(`[MOVING ITEM VIA MENU] Calculated weight of items to transfer (${sourceItem.name} x${amountToTransfer}): ${weightOfItemsToTransfer}`);
+
+    // 1. Overall Max Weight Check for the Target Inventory
+    const proposedNewTotalWeight = (Number(currentWeightOfTargetInv) || 0) + weightOfItemsToTransfer;
+    console.log(`[MOVING ITEM VIA MENU] Overall Weight Check for Target: Current=${currentWeightOfTargetInv}, Adding=${weightOfItemsToTransfer}, ProposedTotal=${proposedNewTotalWeight}, MaxAllowed=${maxWeightOfTargetInv}`);
+    if (proposedNewTotalWeight > maxWeightOfTargetInv) {
+        this.inventoryError(item.slot); // Highlight source slot
+        console.error("[MOVING ITEM VIA MENU] Error: Overall max weight would be exceeded for target inventory.");
+        axios.post(`https://qb-inventory/notify`, { message: 'Target inventory is too full (overall weight).', type: 'error' });
+        return;
+    }
+
+    // 2. Item-Specific Max Weight Check (Only if target is player inventory)
+    if (targetInventoryIsPlayer) {
+        const itemNameToCheck = sourceItem.name.toLowerCase();
+        const specificLimit = this.itemSpecificMaxWeights && this.itemSpecificMaxWeights[itemNameToCheck];
+        console.log(`[MOVING ITEM VIA MENU] ItemSpecific Check for ${itemNameToCheck}. Limit for this item: ${specificLimit === undefined ? 'N/A' : specificLimit}`);
+
+        if (typeof specificLimit === 'number') { // Check if a specific limit exists for this item
+            const currentItemWeightInPlayerInv = this.getCurrentItemTypeWeight(this.playerInventory, sourceItem.name);
+            // additionalWeightOfThisType is weightOfItemsToTransfer
+            console.log(`[MOVING ITEM VIA MENU] ItemSpecific Details: CurrentInPlayer=${currentItemWeightInPlayerInv}, Adding=${weightOfItemsToTransfer}, ProposedSpecificTotal=${currentItemWeightInPlayerInv + weightOfItemsToTransfer}`);
+
+            if (currentItemWeightInPlayerInv + weightOfItemsToTransfer > specificLimit) {
+                console.error(`[MOVING ITEM VIA MENU] Error: Item-specific weight limit for ${itemNameToCheck} exceeded.`);
+                this.inventoryError(item.slot); // Highlight source slot
+                axios.post(`https://qb-inventory/notify`, { message: `You cannot carry any more ${sourceItem.label || sourceItem.name}.`, type: 'error' });
                 return;
             }
+        }
+    }
+    console.log("[MOVING ITEM VIA MENU] All client-side weight checks passed.");
 
-            const weightOfItemsToTransfer = sourceItem.weight * amountToTransfer;
+    // --- Item Placement Logic (Stacking or New Slot) ---
+    let targetSlot = null;
+    const itemToPlace = { // Create a new object for the target to avoid reactivity issues if modifying sourceItem directly before removing
+        ...sourceItem,
+        amount: amountToTransfer,
+        inventory: targetInventoryIsPlayer ? 'player' : 'other' // Set correct new inventory context
+        // 'slot' will be set below
+    };
 
-            // 1. Overall Max Weight Check for the target inventory (already exists)
-            if ((Number(currentTargetWeight) || 0) + weightOfItemsToTransfer > maxTargetWeight) {
+    if (sourceItem.unique) {
+        console.log(`[MOVING ITEM VIA MENU] Item ${sourceItem.name} is unique. Finding new slot.`);
+        targetSlot = this.findNextAvailableSlot(targetInventory, maxSlotsForTargetInv);
+        if (targetSlot === null) {
+            this.inventoryError(item.slot);
+            axios.post(`https://qb-inventory/notify`, { message: 'No empty slot available in target inventory for unique item.', type: 'error' });
+            console.error("[MOVING ITEM VIA MENU] Error: No empty slot for unique item.");
+            return;
+        }
+        console.log(`[MOVING ITEM VIA MENU] Unique item will be placed in new slot: ${targetSlot}`);
+        itemToPlace.slot = targetSlot;
+        targetInventory[targetSlot] = itemToPlace;
+    } else { // Stackable item
+        console.log(`[MOVING ITEM VIA MENU] Item ${sourceItem.name} is stackable. Checking for existing stack in target.`);
+        let existingStackTargetSlot = null;
+        for (const key in targetInventory) {
+            const existingItem = targetInventory[key];
+            if (existingItem && existingItem.name === sourceItem.name && !existingItem.unique) {
+                existingStackTargetSlot = existingItem.slot; // Assuming item objects store their slot
+                break;
+            }
+        }
+
+        if (existingStackTargetSlot !== null) { // Found existing stack
+            targetSlot = existingStackTargetSlot;
+            console.log(`[MOVING ITEM VIA MENU] Found existing stack of ${sourceItem.name} in target slot: ${targetSlot}. Current amount: ${targetInventory[targetSlot].amount}`);
+            targetInventory[targetSlot].amount += amountToTransfer;
+            console.log(`[MOVING ITEM VIA MENU] New amount in target slot ${targetSlot}: ${targetInventory[targetSlot].amount}`);
+        } else { // No existing stack, find new slot
+            console.log(`[MOVING ITEM VIA MENU] No existing stack for ${sourceItem.name}. Finding new slot.`);
+            targetSlot = this.findNextAvailableSlot(targetInventory, maxSlotsForTargetInv);
+            if (targetSlot === null) {
                 this.inventoryError(item.slot);
-                console.error("[moveItemBetweenInventories] Error: Overall max weight exceeded for target inventory.");
-                // Consider sending a NUI notification here for overall weight
-                axios.post(`https://qb-inventory/notify`, { message: 'Target inventory is too full (weight).', type: 'error' });
-
+                axios.post(`https://qb-inventory/notify`, { message: 'No empty slot available in target inventory for new stack.', type: 'error' });
+                console.error("[MOVING ITEM VIA MENU] Error: No empty slot for new stack.");
                 return;
             }
+            console.log(`[MOVING ITEM VIA MENU] New stack for ${sourceItem.name} will be placed in new slot: ${targetSlot}`);
+            itemToPlace.slot = targetSlot;
+            targetInventory[targetSlot] = itemToPlace;
+        }
+    }
 
-            // 2. Item-Specific Max Weight Check (NEW)
-            // This check applies ONLY if items are being moved TO the PLAYER'S inventory.
-            if (sourceInventoryType === 'other') { // Which means targetInventory is this.playerInventory
-                const itemNameToCheck = sourceItem.name.toLowerCase();
-                const specificLimit = this.itemSpecificMaxWeights && this.itemSpecificMaxWeights[itemNameToCheck];
+    // Update source inventory
+    console.log(`[MOVING ITEM VIA MENU] Updating source inventory. Original slot: ${item.slot}, Original amount: ${sourceInventory[item.slot] ? sourceInventory[item.slot].amount : 'N/A - already deleted?'}`);
+    if (sourceInventory[item.slot]) { // Check if it still exists (it should)
+        sourceInventory[item.slot].amount -= amountToTransfer;
+        if (sourceInventory[item.slot].amount <= 0) {
+            console.log(`[MOVING ITEM VIA MENU] Deleting item from source slot ${item.slot} as amount is now <= 0.`);
+            delete sourceInventory[item.slot];
+        } else {
+            console.log(`[MOVING ITEM VIA MENU] New amount in source slot ${item.slot}: ${sourceInventory[item.slot].amount}`);
+        }
+    } else {
+        console.warn(`[MOVING ITEM VIA MENU] Source item at slot ${item.slot} was unexpectedly missing before amount update.`);
+    }
+    
+    const newAmountInSourceSlot = sourceInventory[item.slot] ? sourceInventory[item.slot].amount : 0;
 
-                if (typeof specificLimit === 'number') { // Check if a specific limit exists for this item
-                    const currentItemWeightInPlayerInv = this.getCurrentItemTypeWeight(this.playerInventory, sourceItem.name);
-                    const additionalWeightOfThisType = sourceItem.weight * amountToTransfer;
-
-                    console.log(`[moveItemBetweenInventories] Item-specific check for ${itemNameToCheck}: CurrentInPlayer=${currentItemWeightInPlayerInv}, Adding=${additionalWeightOfThisType}, Limit=${specificLimit}`);
-
-                    if (currentItemWeightInPlayerInv + additionalWeightOfThisType > specificLimit) {
-                        console.error(`[moveItemBetweenInventories] Error: Item-specific weight limit for ${itemNameToCheck} exceeded.`);
-                        this.inventoryError(item.slot); // Highlight the source slot for now
-                        
-                        // Send a more specific notification
-                        // You might need to ensure your NUI can receive and display these, or adapt.
-                        // This uses a generic qbcore notify event, if your inventory uses a different system, adjust.
-                        axios.post(`https://qb-inventory/notify`, { message: `You cannot carry any more ${sourceItem.label || sourceItem.name}.`, type: 'error' });
-                        
-                        return; // Prevent the move
-                    }
-                }
-            }
-
-            // If all checks pass, proceed with the move logic (your existing logic)
-            let targetSlot = null;
-            if (item.unique) {
-                // ... (your existing unique item logic)
-                targetSlot = this.findNextAvailableSlot(targetInventory);
-                if (targetSlot === null) {
-                    this.inventoryError(item.slot);
-                    axios.post(`https://qb-inventory/notify`, { message: 'No slot available in target inventory.', type: 'error' });
-                    return;
-                }
-                const newItem = {
-                    ...sourceItem, // Use sourceItem to get full details
-                    inventory: sourceInventoryType === "player" ? "other" : "player",
-                    amount: amountToTransfer,
-                    slot: targetSlot,
-                };
-                targetInventory[targetSlot] = newItem;
-            } else {
-                // ... (your existing stackable item logic)
-                const targetItemKey = Object.keys(targetInventory).find((key) => targetInventory[key] && targetInventory[key].name === sourceItem.name && !targetInventory[key].unique);
-                const targetItem = targetInventory[targetItemKey];
-
-                if (!targetItem) { // No existing stack, find new slot
-                    targetSlot = this.findNextAvailableSlot(targetInventory);
-                    if (targetSlot === null) {
-                        this.inventoryError(item.slot);
-                        axios.post(`https://qb-inventory/notify`, { message: 'No slot available for new stack.', type: 'error' });
-                        return;
-                    }
-                    const newItem = {
-                        ...sourceItem,
-                        inventory: sourceInventoryType === "player" ? "other" : "player",
-                        amount: amountToTransfer,
-                        slot: targetSlot,
-                    };
-                    targetInventory[targetSlot] = newItem;
-                } else { // Stack with existing item
-                    targetItem.amount += amountToTransfer;
-                    targetSlot = targetItem.slot;
-                }
-            }
-
-            sourceItem.amount -= amountToTransfer;
-            if (sourceItem.amount <= 0) {
-                delete sourceInventory[item.slot];
-            }
-
-            this.postInventoryData(sourceInventoryType, (sourceInventoryType === "player" ? "other" : "player"), item.slot, targetSlot, sourceItem.amount, amountToTransfer);
-        },
+    console.log(`[MOVING ITEM VIA MENU] Calling postInventoryData: FromInv=${sourceInventoryType}, ToInv=${targetInventoryIsPlayer ? 'player' : 'other'}, FromSlot=${item.slot}, ToSlot=${targetSlot}, NewSourceAmt=${newAmountInSourceSlot}, MovedAmt=${amountToTransfer}`);
+    this.postInventoryData(
+        sourceInventoryType, 
+        targetInventoryIsPlayer ? 'player' : 'other', 
+        item.slot,  // Original slot of the item in the source inventory
+        targetSlot, // Slot where item ended up in target inventory
+        newAmountInSourceSlot, 
+        amountToTransfer
+    );
+    console.log(`[MOVING ITEM VIA MENU] SUCCESS: ${sourceItem.name} processed for move.`)
+    console.log(`[MOVING ITEM VIA MENU] END -------------`);
+},
         startDrag(event, slot, inventoryType) {
             event.preventDefault();
             const item = this.getItemInSlot(slot, inventoryType);
@@ -1097,7 +1143,7 @@ const InventoryContainer = Vue.createApp({
         });
 
         window.addEventListener("message", (event) => {
-            console.log("[NUI Message Received from LUA]:", JSON.stringify(event.data, null, 2));
+            // console.log("[NUI Message Received from LUA]:", JSON.stringify(event.data, null, 2));
             switch (event.data.action) {
                 case "open":
                     this.openInventory(event.data);
