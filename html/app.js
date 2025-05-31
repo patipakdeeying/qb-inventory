@@ -498,6 +498,34 @@ const InventoryContainer = Vue.createApp({
                 });
             }
         },
+        getItemStackDisplay(item, inventoryType) {
+            if (!item || typeof item.amount === 'undefined') {
+                return ''; // Return empty if no item or amount
+            }
+
+            const currentAmount = item.amount;
+
+            // Only attempt to show "current/max" for the player's inventory
+            // and if the item has a specific weight limit defined.
+            if (inventoryType === 'player') {
+                const unitWeight = parseFloat(item.weight) || 0; // Ensure it's a number, default to 0
+                const itemNameLower = item.name ? item.name.toLowerCase() : '';
+
+                if (this.itemSpecificMaxWeights &&
+                    typeof this.itemSpecificMaxWeights[itemNameLower] === 'number' &&
+                    unitWeight > 0) {
+                    
+                    const specificTotalWeightLimit = this.itemSpecificMaxWeights[itemNameLower];
+                    const maxAmountBasedOnWeight = Math.floor(specificTotalWeightLimit / unitWeight);
+                    
+                    return `${currentAmount}/${maxAmountBasedOnWeight}`;
+                }
+            }
+            
+            // Fallback for 'other' inventories or player items without a specific limit,
+            // or if unitWeight is 0 (to prevent division by zero).
+            return `x${currentAmount}`;
+        },
         startDrag(event, slot, inventoryType) {
             event.preventDefault();
             const item = this.getItemInSlot(slot, inventoryType);

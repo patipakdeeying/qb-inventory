@@ -40,8 +40,8 @@
                                 <div class="item-slot-img" v-if="getItemInSlot(slot, 'player')" v-tooltip.right-end="{content: generateTooltipContent(getItemInSlot(slot, 'player')), html: true}">
                                     <img :src="'images/' + getItemInSlot(slot, 'player').image" alt="" />
                                 </div>
-                                <div class="item-slot-amount" v-if="getItemInSlot(slot, 'player')">
-                                    <p>x{{ getItemInSlot(slot, 'player').amount }}</p>
+                                <div class="item-slot-amount" v-if="getItemInSlot(slot, 'player') && getItemInSlot(slot, 'player').amount > 0">
+                                    <p>{{ getItemStackDisplay(getItemInSlot(slot, 'player'), 'player') }}</p>
                                 </div>
                                 <div class="item-slot-durability" v-if="getItemInSlot(slot, 'player')">
                                     <div
@@ -94,8 +94,8 @@
                                 <div class="item-slot-img" v-if="getItemInSlot(slot, 'other')" v-tooltip.right-end="{content: generateTooltipContent(getItemInSlot(slot, 'other')), html: true}">
                                     <img :src="'images/' + getItemInSlot(slot, 'other').image" alt="" />
                                 </div>
-                                <div class="item-slot-amount" v-if="getItemInSlot(slot, 'other')">
-                                    <p>x{{ getItemInSlot(slot, 'other').amount }}</p>
+                                <div class="item-slot-amount" v-if="getItemInSlot(slot, 'other') && getItemInSlot(slot, 'other').amount > 0">
+                                    <p>{{ getItemStackDisplay(getItemInSlot(slot, 'other'), 'other') }}</p>
                                 </div>
                                 <div v-if="isShopInventory && getItemInSlot(slot, 'other')" class="item-price">
                                     <p>${{ getItemInSlot(slot, 'other').price }}</p>
