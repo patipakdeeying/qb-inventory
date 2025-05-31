@@ -138,6 +138,11 @@ const InventoryContainer = Vue.createApp({
                 popupTransferAmount: null,
                 //
                 dragDropPendingData: null,
+                //
+                showGiveItemPopup: false,
+                itemToGive: null,
+                giveTargetPlayerId: null,
+                giveQuantity: 1, // Default quantity for give popup
             };
         },
         openInventory(data) {
@@ -526,6 +531,98 @@ const InventoryContainer = Vue.createApp({
             // or if unitWeight is 0 (to prevent division by zero).
             return `x${currentAmount}`;
         },
+        calculateMaxPlayerCanReceive(itemToReceive) {
+            if (!itemToReceive || typeof itemToReceive.weight !== 'number' || itemToReceive.weight <= 0) {
+                // If item has no weight or invalid weight, can technically receive full amount (up to slot limits, handled elsewhere)
+                // or 0 if you want to be strict. For this context, let's assume it's about weight capacity.
+                // If no weight, specific weight limits also don't apply in a meaningful way via division.
+                return itemToReceive ? itemToReceive.amount : 0; 
+            }
+
+            let maxByOverallWeight = Infinity;
+            const remainingOverallWeightCapacity = (this.maxWeight || 0) - (this.playerWeight || 0);
+            
+            if (remainingOverallWeightCapacity < 0) { // Should not happen if inventory is managed correctly
+            maxByOverallWeight = 0;
+            } else {
+            maxByOverallWeight = Math.floor(remainingOverallWeightCapacity / itemToReceive.weight);
+            }
+            
+
+            let maxBySpecificWeight = Infinity;
+            const itemNameLower = itemToReceive.name ? itemToReceive.name.toLowerCase() : '';
+
+            if (itemNameLower && this.itemSpecificMaxWeights && typeof this.itemSpecificMaxWeights[itemNameLower] === 'number') {
+                const specificLimitTotal = this.itemSpecificMaxWeights[itemNameLower];
+                const currentItemTypeWeightInPlayer = this.getCurrentItemTypeWeight(this.playerInventory, itemToReceive.name);
+                let remainingSpecificWeightCapacity = specificLimitTotal - currentItemTypeWeightInPlayer;
+                
+                if (remainingSpecificWeightCapacity < 0) remainingSpecificWeightCapacity = 0; // Cannot have negative capacity
+
+                maxBySpecificWeight = Math.floor(remainingSpecificWeightCapacity / itemToReceive.weight);
+            }
+
+            // The actual amount being offered in the dragged stack is also a limit
+            const amountInDraggedStack = itemToReceive.amount || 0;
+
+            let maxCanReceive = Math.min(amountInDraggedStack, maxByOverallWeight, maxBySpecificWeight);
+            
+            return Math.max(0, Math.floor(maxCanReceive)); // Ensure it's not negative and is an integer
+        },
+        openGiveItemPopup() {
+            if (!this.contextMenuItem) return;
+            // Ensure the item is from player inventory before allowing to give
+            if (this.playerInventory && this.playerInventory[this.contextMenuItem.slot] === this.contextMenuItem) {
+                this.itemToGive = this.contextMenuItem;
+                this.giveTargetPlayerId = null; // Reset Player ID field
+                this.giveQuantity = 1;          // Default quantity to 1
+                this.showGiveItemPopup = true;
+                this.showContextMenu = false;     // Close main context menu
+                this.$nextTick(() => {
+                    if (this.$refs.givePlayerIdInput) { // Focus the Player ID input first
+                        this.$refs.givePlayerIdInput.focus();
+                    }
+                });
+            } else {
+                console.error("Cannot give item not in player inventory or contextMenuItem mismatch.");
+                 axios.post(`https://qb-inventory/notify`, { message: 'You can only give items from your personal inventory.', type: 'error' });
+            }
+        },
+
+        setGiveQuantityToMax() {
+            if (this.itemToGive && typeof this.itemToGive.amount === 'number') {
+                this.giveQuantity = this.itemToGive.amount;
+            }
+        },
+
+        confirmGiveItem() {
+            if (!this.itemToGive) {
+                console.error("No item selected to give.");
+                this.cancelGiveItem();
+                return;
+            }
+            if (this.giveTargetPlayerId === null || this.giveTargetPlayerId === '' || isNaN(parseInt(this.giveTargetPlayerId))) {
+                console.error("Invalid Player ID.");
+                axios.post(`https://qb-inventory/notify`, { message: 'Please enter a valid Player ID.', type: 'error' });
+                return;
+            }
+            if (this.giveQuantity === null || isNaN(this.giveQuantity) || this.giveQuantity <= 0 || this.giveQuantity > this.itemToGive.amount) {
+                console.error("Invalid quantity to give.");
+                axios.post(`https://qb-inventory/notify`, { message: 'Please enter a valid quantity.', type: 'error' });
+                return;
+            }
+
+            // Call the modified giveItem method
+            this.giveItem(this.itemToGive, this.giveQuantity, parseInt(this.giveTargetPlayerId));
+            this.cancelGiveItem(); // Close popup after attempting
+        },
+
+        cancelGiveItem() {
+            this.showGiveItemPopup = false;
+            this.itemToGive = null;
+            this.giveTargetPlayerId = null;
+            this.giveQuantity = 1;
+        },
         startDrag(event, slot, inventoryType) {
             event.preventDefault();
             const item = this.getItemInSlot(slot, inventoryType);
@@ -566,24 +663,18 @@ const InventoryContainer = Vue.createApp({
         },
         endDrag(event) {
             if (!this.currentlyDraggingItem) {
-                return; // Nothing was being dragged
+                return; 
             }
 
-            // Capture drag information BEFORE clearing it, in case popup is cancelled
             const draggedItemContext = {
-                item: { ...this.currentlyDraggingItem }, // Shallow copy for safety
+                item: { ...this.currentlyDraggingItem }, 
                 originalSlot: this.currentlyDraggingSlot,
                 originalInventoryType: this.dragStartInventoryType
             };
 
-            // Hide the ghost element immediately
             if (this.ghostElement && this.ghostElement.parentElement) {
                 document.body.removeChild(this.ghostElement);
                 this.ghostElement = null; 
-                // Don't call this.clearDragData() yet, only parts of it.
-                // We need currentlyDraggingItem etc. if the user cancels the popup
-                // and we want to revert the item or if the popup needs this.currentlyDraggingItem.
-                // Actually, dragDropPendingData will hold what we need.
             }
 
             const elementsUnderCursor = document.elementsFromPoint(event.clientX, event.clientY);
@@ -602,42 +693,55 @@ const InventoryContainer = Vue.createApp({
             }
 
             if (targetInventoryType && targetSlot !== null && !isNaN(targetSlot)) {
-                // Check for dropping onto its own slot (no-op)
                 if (draggedItemContext.originalInventoryType === targetInventoryType && draggedItemContext.originalSlot === targetSlot) {
                     console.log("[endDrag] Item dropped onto its own slot. Clearing drag data.");
-                    this.clearDragData(); // Full clear for no-op
+                    this.clearDragData(); 
                     return;
                 }
 
-                // If dragging between different main inventories, show popup
+                // Check if moving BETWEEN different main inventory types (player <-> other)
                 if (draggedItemContext.originalInventoryType !== targetInventoryType) {
                     this.dragDropPendingData = {
-                        sourceItem: draggedItemContext.item, // The item object that was dragged
+                        sourceItem: draggedItemContext.item, 
                         originalSourceSlot: draggedItemContext.originalSlot,
                         originalSourceInventoryType: draggedItemContext.originalInventoryType,
                         targetInventoryType: targetInventoryType,
                         targetSlot: targetSlot
                     };
 
-                    this.itemToMove = draggedItemContext.item;       // For popup display ("Move [item label]")
-                    this.popupTransferAmount = draggedItemContext.item.amount; // Default popup to full stack
+                    this.itemToMove = draggedItemContext.item; 
+
+                    // <<< MODIFICATION FOR POPUP DEFAULT QUANTITY >>>
+                    if (targetInventoryType === 'player' && draggedItemContext.originalInventoryType === 'other') {
+                        const maxPlayerCanReceive = this.calculateMaxPlayerCanReceive(draggedItemContext.item);
+                        
+                        if (maxPlayerCanReceive <= 0) {
+                            // Player cannot receive any of this item, notify and abort.
+                            axios.post(`https://qb-inventory/notify`, { message: `You cannot carry any more of ${draggedItemContext.item.label || draggedItemContext.item.name}.`, type: 'error' });
+                            this.clearDragData(); // Abort the drag, clear original drag data
+                            this.dragDropPendingData = null; // also clear pending data
+                            return;
+                        }
+                        this.popupTransferAmount = maxPlayerCanReceive; // Default to what player can actually receive
+                        console.log(`[endDrag] Dragging from OTHER to PLAYER. Max player can receive for ${draggedItemContext.item.name}: ${maxPlayerCanReceive}. Popup default: ${this.popupTransferAmount}`);
+                    } else {
+                        // For player-to-other or other-to-other (if popup was enabled for it), default to full stack.
+                        this.popupTransferAmount = draggedItemContext.item.amount;
+                    }
+                    // <<< END OF MODIFICATION >>>
+
                     this.showQuantityPopup = true;
-                    
-                    // We don't call clearDragData() here; it will be handled by confirmMoveQuantity or cancelMoveQuantity
-                    return; // Wait for popup
+                    return; 
                 } else {
-                    // Intra-inventory drag (e.g., player-to-player) - use existing handleItemDrop directly with full stack
-                    // (or you could also implement popup for this if desired, but current request is for inter-inventory)
-                    this.handleItemDrop(targetInventoryType, targetSlot, draggedItemContext.item.amount); // Pass full amount
-                    // clearDragData() is called in handleItemDrop's finally block
+                    // Intra-inventory drag (e.g., player-to-player)
+                    // Uses handleItemDrop directly, which now accepts quantity. Defaulting to full stack for intra-inventory.
+                    this.handleItemDrop(targetInventoryType, targetSlot, draggedItemContext.item.amount);
                 }
 
             } else if (this.isOtherInventoryEmpty && draggedItemContext.originalInventoryType === "player") {
-                // Dropping on ground - assume full stack, no popup for this specific case unless you want one
-                this.handleDropOnInventoryContainer(); // This already calls clearDragData
+                this.handleDropOnInventoryContainer(); 
             } else {
-                // Dropped on an invalid location
-                this.clearDragData(); // Clear drag data if dropped on nothing
+                this.clearDragData(); 
             }
         },
         handleDropOnPlayerSlot(targetSlot) {
@@ -949,55 +1053,60 @@ const InventoryContainer = Vue.createApp({
             this.showContextMenu = true;   // Show the menu
             this.showSubmenu = false;      // Ensure submenu is reset if you have one
         },
-        async giveItem(item, quantity) {
-            if (item && item.name) {
-                const selectedItem = item;
-                const playerHasItem = Object.values(this.playerInventory).some((invItem) => invItem && invItem.name === selectedItem.name);
+        async giveItem(item, quantity, targetPlayerId) { // Added targetPlayerId
+            // The 'item' parameter here is the item object from contextMenuItem/itemToGive
+            // The 'quantity' is the numerical amount calculated from the new popup
+            // The 'targetPlayerId' is the ID from the new popup
 
-                if (playerHasItem) {
-                    let amountToGive;
-                    if (typeof quantity === "string") {
-                        switch (quantity) {
-                            case "half":
-                                amountToGive = Math.ceil(selectedItem.amount / 2);
-                                break;
-                            case "all":
-                                amountToGive = selectedItem.amount;
-                                break;
-                            default:
-                                console.error("Invalid quantity specified.");
-                                return;
-                        }
-                    } else {
-                        amountToGive = quantity;
-                    }
-
-                    if (amountToGive > selectedItem.amount) {
-                        console.error("Specified quantity exceeds available amount.");
-                        return;
-                    }
-
-                    try {
-                        const response = await axios.post("https://qb-inventory/GiveItem", {
-                            item: selectedItem,
-                            amount: amountToGive,
-                            slot: selectedItem.slot,
-                            info: selectedItem.info,
-                        });
-                        if (!response.data) return;
-
-                        this.playerInventory[selectedItem.slot].amount -= amountToGive;
-                        if (this.playerInventory[selectedItem.slot].amount === 0) {
-                            delete this.playerInventory[selectedItem.slot];
-                        }
-                    } catch (error) {
-                        console.error("An error occurred while giving the item:", error);
-                    }
-                } else {
-                    console.error("Player does not have the item in their inventory. Item cannot be given.");
-                }
+            if (!item || !item.name || !item.slot) { // Ensure item has necessary details
+                console.error("giveItem: Invalid item data provided.", item);
+                return;
             }
-            this.showContextMenu = false;
+            
+            // Ensure the item being given is still in the player's inventory and has enough quantity
+            // This re-fetches the current state of the item from playerInventory
+            const currentItemInPlayerInventory = this.playerInventory[item.slot]; 
+            if (!currentItemInPlayerInventory || currentItemInPlayerInventory.name !== item.name || currentItemInPlayerInventory.amount < quantity) {
+                console.error("Item not found in player inventory or insufficient quantity for giveItem.", item, quantity);
+                axios.post(`https://qb-inventory/notify`, { message: 'Item state changed or insufficient amount.', type: 'error' });
+                return;
+            }
+            
+            console.log(`Attempting to give ${quantity} of ${item.name} (Slot: ${item.slot}) to Player ID: ${targetPlayerId}`);
+
+            try {
+                const response = await axios.post("https://qb-inventory/GiveItem", {
+                    item: currentItemInPlayerInventory, // Send the current, full item data
+                    amount: quantity,
+                    slot: currentItemInPlayerInventory.slot, // Ensure using the correct slot
+                    // info: currentItemInPlayerInventory.info, // Info is part of the item object
+                    targetPlayerId: targetPlayerId // NEW: Pass the target player ID
+                });
+
+                if (response.data === true) { // Assuming server returns true on success
+                    // Client-side inventory update (already part of your old giveItem)
+                    this.playerInventory[item.slot].amount -= quantity;
+                    if (this.playerInventory[item.slot].amount <= 0) {
+                        delete this.playerInventory[item.slot];
+                    }
+                    axios.post(`https://qb-inventory/notify`, { message: `Successfully gave ${quantity}x ${item.label || item.name}.`, type: 'success' });
+                } else {
+                    // Server might have sent back false or an error message in response.data if it's an object
+                    let errorMessage = 'Failed to give item. The player might not be nearby or their inventory is full.';
+                    if(response.data && typeof response.data.message === 'string') {
+                        errorMessage = response.data.message;
+                    } else if (response.data === false) {
+                        // Already handled by client Lua notify for 'no one nearby' or server can send more specific one.
+                        // For now, a generic client message if server explicitly returns false.
+                    }
+                    axios.post(`https://qb-inventory/notify`, { message: errorMessage, type: 'error' });
+                    console.error("Failed to give item, server response:", response.data);
+                }
+            } catch (error) {
+                console.error("An error occurred while giving the item via NUI call:", error);
+                axios.post(`https://qb-inventory/notify`, { message: 'Error giving item.', type: 'error' });
+            }
+            // this.showContextMenu = false; // Context menu should already be closed by openGiveItemPopup
         },
         findNextAvailableSlot(inventory, maxSlots) {
             if (!inventory || typeof maxSlots !== 'number' || maxSlots <= 0) {

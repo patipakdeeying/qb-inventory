@@ -199,13 +199,9 @@
             </div>
             <ul v-if="showContextMenu" class="context-menu" :style="{ top: contextMenuPosition.top, left: contextMenuPosition.left }">
                 <li v-if="contextMenuItem.useable" @click="useItem(contextMenuItem)">Use</li>
-                <li @mouseover="showSubmenu = true" @mouseleave="showSubmenu = false">
+                <li v-if="contextMenuItem && playerInventory[contextMenuItem.slot] && contextMenuItem.inventory === 'player'" 
+                    @click="openGiveItemPopup()">
                     Give
-                    <ul v-if="showSubmenu" class="submenu">
-                        <li @click="giveItem(contextMenuItem, 1)">Single</li>
-                        <li @click="giveItem(contextMenuItem, 'half')">Half</li>
-                        <li @click="giveItem(contextMenuItem, 'all')">All</li>
-                    </ul>
                 </li>
                 <li v-if="contextMenuItem && !isOtherInventoryEmpty && !otherInventoryName.startsWith('shop-')"
                     @click="promptMoveQuantity(contextMenuItem)">
@@ -215,6 +211,32 @@
                 <li v-if="contextMenuItem.name.includes('weapon_')" @click="copySerial(contextMenuItem)">Copy Serial</li>
                 <li v-if="contextMenuItem.name.includes('weapon_')" @click="openWeaponAttachments(contextMenuItem)">Attachments</li>
             </ul>
+            <div class="give-item-popup-overlay" v-if="showGiveItemPopup">
+                <div class="give-item-popup"> <h4>Give {{ itemToGive?.label }}</h4>
+                    
+                    <div class="popup-input-group">
+                        <label for="givePlayerId">Player ID:</label>
+                        <input type="number" id="givePlayerId" v-model.number="giveTargetPlayerId" placeholder="Server ID of recipient" ref="givePlayerIdInput" />
+                    </div>
+
+                    <div class="popup-input-group">
+                        <label for="giveQuantity">Quantity:</label>
+                        <div class="quantity-input-wrapper"> <input type="number" 
+                                id="giveQuantity"
+                                v-model.number="giveQuantity" 
+                                min="1" 
+                                :max="itemToGive?.amount" 
+                                placeholder="Enter quantity" />
+                            <span class="quantity-max-button" @click="setGiveQuantityToMax">MAX</span>
+                        </div>
+                    </div>
+
+                    <div class="popup-buttons">
+                        <button @click="confirmGiveItem">Give Item</button>
+                        <button @click="cancelGiveItem">Cancel</button>
+                    </div>
+                </div>
+            </div>
             <div class="quantity-popup-overlay" v-if="showQuantityPopup">
                 <div class="quantity-popup">
                     <h4>Move {{ itemToMove?.label }}</h4>

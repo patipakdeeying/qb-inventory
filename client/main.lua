@@ -223,16 +223,25 @@ RegisterNUICallback('SetInventoryData', function(data, cb)
 end)
 
 RegisterNUICallback('GiveItem', function(data, cb)
-    local player, distance = QBCore.Functions.GetClosestPlayer(GetEntityCoords(PlayerPedId()))
-    if player ~= -1 and distance < 3 then
-        local playerId = GetPlayerServerId(player)
-        QBCore.Functions.TriggerCallback('qb-inventory:server:giveItem', function(success)
-            cb(success)
-        end, playerId, data.item.name, data.amount, data.slot, data.info)
-    else
-        QBCore.Functions.Notify(Lang:t('notify.nonb'), 'error')
+    local targetPlayerId = tonumber(data.targetPlayerId) -- Get targetPlayerId from NUI data
+    local itemToGive = data.item -- This is the item object
+    local amountToGive = tonumber(data.amount)
+
+    if not targetPlayerId or not itemToGive or not amountToGive or amountToGive <= 0 then
+        QBCore.Functions.Notify(Lang:t('error.invalid_data_received') or "Invalid data for giving item.", 'error')
         cb(false)
+        return
     end
+
+    -- The client doesn't need to find the closest player anymore.
+    -- It will directly try to give to the specified targetPlayerId.
+    -- The server will handle validation of the targetPlayerId (e.g., if they are online) and distance if you keep that check.
+    -- The 'data.slot' and 'data.info' are part of data.item now.
+    -- Make sure the server callback 'qb-inventory:server:giveItem' expects `item.name, amount, item.slot, item.info`
+    -- Your current server callback is: target, item (name), amount, slot, info
+    QBCore.Functions.TriggerCallback('qb-inventory:server:giveItem', function(success)
+        cb(success)
+    end, targetPlayerId, itemToGive.name, amountToGive, itemToGive.slot, itemToGive.info)
 end)
 
 RegisterNUICallback('GetWeaponData', function(cData, cb)
