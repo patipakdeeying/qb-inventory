@@ -1,7 +1,7 @@
 -- Define VehicleModelStorage as a new, separate table at the top level
 VehicleModelStorage = {
     -- Make sure to use lowercase model names (spawn names)
-    ['italigtb22'] = { 
+    ['italigtb2'] = { 
         trunkSlots = 3,
         trunkWeight = 200000, 
         gloveboxSlots = 2,
