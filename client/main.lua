@@ -174,7 +174,6 @@ RegisterNetEvent('qb-inventory:client:openInventory', function(items, other)
         inventory = items,
         slots = Config.MaxSlots,
         maxweight = Config.MaxWeight,
-        itemSpecificMaxWeights = Config.ItemSpecificMaxWeights,
         other = other
     })
 end)
