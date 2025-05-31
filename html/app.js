@@ -136,6 +136,8 @@ const InventoryContainer = Vue.createApp({
                 showQuantityPopup: false,
                 itemToMove: null,         // To store the item being considered for moving
                 popupTransferAmount: 1,
+                //
+                dragDropPendingData: null,
             };
         },
         openInventory(data) {
@@ -269,26 +271,44 @@ const InventoryContainer = Vue.createApp({
         },
 
         confirmMoveQuantity() {
-            console.log("[confirmMoveQuantity] Item to move:", this.itemToMove ? JSON.parse(JSON.stringify(this.itemToMove)) : null, "Amount:", this.popupTransferAmount);
-            if (this.itemToMove && this.popupTransferAmount > 0 && this.itemToMove.amount >= this.popupTransferAmount) {
-                const sourceInventoryType = this.itemToMove.inventory; // This is where it needs the property
+            const quantity = this.popupTransferAmount;
+            const fromDragDrop = this.dragDropPendingData !== null; // Check if this originated from a drag
 
-                if (!sourceInventoryType) { // This condition should no longer be met if openInventory is fixed
-                    console.error("[confirmMoveQuantity] Error: itemToMove is missing 'inventory' property!");
-                    this.cancelMoveQuantity(); // Or your method to close the popup
-                    return;
-                }
-                this.moveItemBetweenInventories(this.itemToMove, sourceInventoryType, this.popupTransferAmount);
-            } else {
-                console.error("[confirmMoveQuantity] Condition not met, invalid amount, or no item to move.");
+            if (!this.itemToMove || quantity <= 0 || this.itemToMove.amount < quantity) {
+                console.error("[confirmMoveQuantity] Invalid item or quantity. Item:", this.itemToMove, "Qty:", quantity);
+                this.cancelMoveQuantity(); // This will handle cleanup
+                return;
             }
-            this.cancelMoveQuantity(); // Or your method to close the popup (e.g., closeQuantityPopup)
+
+            if (fromDragDrop) {
+                const { sourceItem, originalSourceSlot, originalSourceInventoryType, targetInventoryType, targetSlot } = this.dragDropPendingData;
+                
+                this.currentlyDraggingItem = sourceItem; 
+                this.currentlyDraggingSlot = originalSourceSlot;
+                this.dragStartInventoryType = originalSourceInventoryType;
+
+                console.log(`[confirmMoveQuantity] Drag-Drop confirmed. Moving ${sourceItem.name} from ${originalSourceInventoryType}:${originalSourceSlot} to ${targetInventoryType}:${targetSlot}, Qty: ${quantity}`);
+                this.handleItemDrop(targetInventoryType, targetSlot, quantity); 
+                
+                // No need to nullify this.dragDropPendingData here, cancelMoveQuantity will do it.
+                // clearDragData is in handleItemDrop's finally.
+            } else { /* ... existing right-click move logic ... */
+                const sourceInventoryType = this.itemToMove.inventory;
+                if (!sourceInventoryType) { /* ... error ... */ this.cancelMoveQuantity(); return; }
+                this.moveItemBetweenInventories(this.itemToMove, sourceInventoryType, quantity);
+            }
+            this.cancelMoveQuantity(); 
         },
-        // Ensure you have one of these defined:
-        cancelMoveQuantity() { // This is the likely correct name now
+
+        cancelMoveQuantity() {
             this.showQuantityPopup = false;
             this.itemToMove = null;
             this.popupTransferAmount = 1;
+            if (this.dragDropPendingData) { 
+                console.log("[cancelMoveQuantity] Popup was for a drag operation. Clearing main drag data.");
+                this.clearDragData(); // This resets currentlyDraggingItem, currentlyDraggingSlot, etc.
+                this.dragDropPendingData = null; // Reset the pending drag data
+            }
         },
         // --- END NEW METHODS ---
         clearTransferAmount() {
@@ -488,34 +508,79 @@ const InventoryContainer = Vue.createApp({
         },
         endDrag(event) {
             if (!this.currentlyDraggingItem) {
-                return;
+                return; // Nothing was being dragged
+            }
+
+            // Capture drag information BEFORE clearing it, in case popup is cancelled
+            const draggedItemContext = {
+                item: { ...this.currentlyDraggingItem }, // Shallow copy for safety
+                originalSlot: this.currentlyDraggingSlot,
+                originalInventoryType: this.dragStartInventoryType
+            };
+
+            // Hide the ghost element immediately
+            if (this.ghostElement && this.ghostElement.parentElement) {
+                document.body.removeChild(this.ghostElement);
+                this.ghostElement = null; 
+                // Don't call this.clearDragData() yet, only parts of it.
+                // We need currentlyDraggingItem etc. if the user cancels the popup
+                // and we want to revert the item or if the popup needs this.currentlyDraggingItem.
+                // Actually, dragDropPendingData will hold what we need.
             }
 
             const elementsUnderCursor = document.elementsFromPoint(event.clientX, event.clientY);
-
             const playerSlotElement = elementsUnderCursor.find((el) => el.classList.contains("item-slot") && el.closest(".player-inventory-section"));
-
             const otherSlotElement = elementsUnderCursor.find((el) => el.classList.contains("item-slot") && el.closest(".other-inventory-section"));
 
-            if (playerSlotElement) {
-                const targetSlot = Number(playerSlotElement.dataset.slot);
-                if (targetSlot && !(targetSlot === this.currentlyDraggingSlot && this.dragStartInventoryType === "player")) {
-                    this.handleDropOnPlayerSlot(targetSlot);
-                }
-            } else if (otherSlotElement) {
-                const targetSlot = Number(otherSlotElement.dataset.slot);
-                if (targetSlot && !(targetSlot === this.currentlyDraggingSlot && this.dragStartInventoryType === "other")) {
-                    this.handleDropOnOtherSlot(targetSlot);
-                }
-            } else if (this.isOtherInventoryEmpty && this.dragStartInventoryType === "player") {
-                const isOverInventoryGrid = elementsUnderCursor.some((el) => el.classList.contains("inventory-grid") || el.classList.contains("item-grid"));
+            let targetInventoryType = null;
+            let targetSlot = null;
 
-                if (!isOverInventoryGrid) {
-                    this.handleDropOnInventoryContainer();
-                }
+            if (playerSlotElement) {
+                targetInventoryType = "player";
+                targetSlot = Number(playerSlotElement.dataset.slot);
+            } else if (otherSlotElement) {
+                targetInventoryType = "other";
+                targetSlot = Number(otherSlotElement.dataset.slot);
             }
 
-            this.clearDragData();
+            if (targetInventoryType && targetSlot !== null && !isNaN(targetSlot)) {
+                // Check for dropping onto its own slot (no-op)
+                if (draggedItemContext.originalInventoryType === targetInventoryType && draggedItemContext.originalSlot === targetSlot) {
+                    console.log("[endDrag] Item dropped onto its own slot. Clearing drag data.");
+                    this.clearDragData(); // Full clear for no-op
+                    return;
+                }
+
+                // If dragging between different main inventories, show popup
+                if (draggedItemContext.originalInventoryType !== targetInventoryType) {
+                    this.dragDropPendingData = {
+                        sourceItem: draggedItemContext.item, // The item object that was dragged
+                        originalSourceSlot: draggedItemContext.originalSlot,
+                        originalSourceInventoryType: draggedItemContext.originalInventoryType,
+                        targetInventoryType: targetInventoryType,
+                        targetSlot: targetSlot
+                    };
+
+                    this.itemToMove = draggedItemContext.item;       // For popup display ("Move [item label]")
+                    this.popupTransferAmount = draggedItemContext.item.amount; // Default popup to full stack
+                    this.showQuantityPopup = true;
+                    
+                    // We don't call clearDragData() here; it will be handled by confirmMoveQuantity or cancelMoveQuantity
+                    return; // Wait for popup
+                } else {
+                    // Intra-inventory drag (e.g., player-to-player) - use existing handleItemDrop directly with full stack
+                    // (or you could also implement popup for this if desired, but current request is for inter-inventory)
+                    this.handleItemDrop(targetInventoryType, targetSlot, draggedItemContext.item.amount); // Pass full amount
+                    // clearDragData() is called in handleItemDrop's finally block
+                }
+
+            } else if (this.isOtherInventoryEmpty && draggedItemContext.originalInventoryType === "player") {
+                // Dropping on ground - assume full stack, no popup for this specific case unless you want one
+                this.handleDropOnInventoryContainer(); // This already calls clearDragData
+            } else {
+                // Dropped on an invalid location
+                this.clearDragData(); // Clear drag data if dropped on nothing
+            }
         },
         handleDropOnPlayerSlot(targetSlot) {
             if (this.isShopInventory && this.dragStartInventoryType === "other") {
@@ -573,211 +638,166 @@ const InventoryContainer = Vue.createApp({
         getInventoryByType(inventoryType) {
             return inventoryType === "player" ? this.playerInventory : this.otherInventory;
         },
-        handleItemDrop(targetInventoryType, droppedOnSlotNumberParam) {
-    try {
-        const droppedOnSlotNumber = parseInt(droppedOnSlotNumberParam, 10);
+        handleItemDrop(targetInventoryType, droppedOnSlotNumberParam, quantityToUse) { // <<< Added quantityToUse
+            try {
+                const droppedOnSlotNumber = parseInt(droppedOnSlotNumberParam, 10);
 
-        if (this.dragStartInventoryType === targetInventoryType && this.currentlyDraggingSlot === droppedOnSlotNumber) {
-            console.log("[handleItemDrop] Item dropped onto its own slot. No action.");
-            this.clearDragData();
-            return;
-        }
-
-        const isShop = this.otherInventoryName.indexOf("shop-") !== -1;
-        if (this.dragStartInventoryType === "other" && targetInventoryType === "other" && isShop) {
-            this.clearDragData();
-            return;
-        }
-
-        if (isNaN(droppedOnSlotNumber)) {
-            throw new Error("Invalid target slot number from drop event");
-        }
-
-        const sourceItem = this.currentlyDraggingItem;
-        if (!sourceItem) {
-            throw new Error("No item currently being dragged.");
-        }
-
-        // Use full stack for drag-and-drop unless transferAmount is explicitly set for drag by other means
-        const amountToTransfer = (this.transferAmount !== null && this.transferAmount > 0) ? this.transferAmount : sourceItem.amount;
-        
-        const sourceInventoryObject = this.getInventoryByType(this.dragStartInventoryType);
-        const actualSourceItemFromOriginalSlot = sourceInventoryObject[this.currentlyDraggingSlot];
-
-        if (!actualSourceItemFromOriginalSlot || actualSourceItemFromOriginalSlot.name !== sourceItem.name) {
-            throw new Error("Source item in slot has changed or is missing during drag.");
-        }
-        // Ensure we don't try to transfer more than what's actually in the slot
-        const finalAmountToTransfer = Math.min(amountToTransfer, actualSourceItemFromOriginalSlot.amount);
-
-        if (finalAmountToTransfer <= 0) {
-            throw new Error("Final amount to transfer is zero or less.");
-        }
-
-        const targetInventoryObject = this.getInventoryByType(targetInventoryType);
-        const maxSlotsForTarget = targetInventoryType === 'player' ? this.totalSlots : this.otherInventorySlots;
-
-        // --- Weight and Item-Specific Weight Checks ---
-        let canProceedAfterWeightChecks = true;
-        // V V V THIS IS THE CORRECTED CONDITION V V V
-        if (this.dragStartInventoryType !== targetInventoryType) { 
-            // ONLY perform weight checks if moving BETWEEN player and other inventory
-            const itemWeight = sourceItem.weight || 0;
-            const weightOfItemsToTransfer = itemWeight * finalAmountToTransfer; // Use finalAmountToTransfer
-
-            if (targetInventoryType === "player") { // Moving TO Player (from Other)
-                const currentTargetWeight = this.playerWeight || 0;
-                const maxTargetWeightLimit = this.maxWeight || 0;
-                if ((Number(currentTargetWeight) || 0) + weightOfItemsToTransfer > maxTargetWeightLimit) {
-                    axios.post(`https://qb-inventory/notify`, { message: 'Your inventory is too full (weight).', type: 'error' });
-                    canProceedAfterWeightChecks = false;
+                // No-op check is now primarily in endDrag before this is called for specific quantities
+                // However, if called directly, this could still be useful.
+                if (this.dragStartInventoryType === targetInventoryType && this.currentlyDraggingSlot === droppedOnSlotNumber && quantityToUse === this.currentlyDraggingItem.amount) {
+                    console.log("[handleItemDrop] Item dropped onto its own slot with full amount. No action.");
+                    // clearDragData will be called in finally block
+                    return;
                 }
 
-                if (canProceedAfterWeightChecks) { // Only if overall weight passed
-                    const itemNameToCheck = sourceItem.name.toLowerCase();
-                    const specificLimit = this.itemSpecificMaxWeights && this.itemSpecificMaxWeights[itemNameToCheck];
-                    if (typeof specificLimit === 'number') {
-                        // For items coming from 'other', this.playerInventory is the correct context for current weight
-                        const currentItemWeightInPlayerInv = this.getCurrentItemTypeWeight(this.playerInventory, sourceItem.name);
-                        if ((currentItemWeightInPlayerInv + weightOfItemsToTransfer) > specificLimit) {
-                            axios.post(`https://qb-inventory/notify`, { message: `You cannot carry any more ${sourceItem.label || sourceItem.name}.`, type: 'error' });
+                const isShop = this.otherInventoryName.indexOf("shop-") !== -1;
+                if (this.dragStartInventoryType === "other" && targetInventoryType === "other" && isShop) {
+                    // clearDragData will be called in finally block
+                    return;
+                }
+
+                if (isNaN(droppedOnSlotNumber)) {
+                    throw new Error("Invalid target slot number from drop event");
+                }
+
+                const sourceItem = this.currentlyDraggingItem; // This is set by startDrag, or re-set by confirmMoveQuantity
+                if (!sourceItem) {
+                    throw new Error("No item currently being dragged (handleItemDrop).");
+                }
+
+                const sourceInventoryObject = this.getInventoryByType(this.dragStartInventoryType);
+                const actualSourceItemFromOriginalSlot = sourceInventoryObject[this.currentlyDraggingSlot];
+
+                if (!actualSourceItemFromOriginalSlot || actualSourceItemFromOriginalSlot.name !== sourceItem.name) {
+                    throw new Error("Source item in slot has changed or is missing during drag (handleItemDrop).");
+                }
+
+                // Use the quantity passed from the popup (or directly from endDrag for intra-inventory)
+                let amountToTransfer = Math.min(quantityToUse, actualSourceItemFromOriginalSlot.amount);
+                if (amountToTransfer <= 0) {
+                    throw new Error("Final amount to transfer is zero or less (handleItemDrop).");
+                }
+                
+                const targetInventoryObject = this.getInventoryByType(targetInventoryType);
+                const maxSlotsForTarget = targetInventoryType === 'player' ? this.totalSlots : this.otherInventorySlots;
+
+                // --- Weight and Item-Specific Weight Checks (as corrected previously) ---
+                let canProceedAfterWeightChecks = true;
+                if (this.dragStartInventoryType !== targetInventoryType) { 
+                    // (Your existing inter-inventory weight check logic here, using 'amountToTransfer')
+                    // ...
+                    const itemWeight = sourceItem.weight || 0;
+                    const weightOfItemsToTransfer = itemWeight * amountToTransfer;
+
+                    if (targetInventoryType === "player") {
+                        const currentTargetWeight = this.playerWeight || 0;
+                        const maxTargetWeightLimit = this.maxWeight || 0;
+                        if ((Number(currentTargetWeight) || 0) + weightOfItemsToTransfer > maxTargetWeightLimit) {
+                            axios.post(`https://qb-inventory/notify`, { message: 'Your inventory is too full (weight).', type: 'error' });
+                            canProceedAfterWeightChecks = false;
+                        }
+                        if (canProceedAfterWeightChecks) {
+                            const itemNameToCheck = sourceItem.name.toLowerCase();
+                            const specificLimit = this.itemSpecificMaxWeights && this.itemSpecificMaxWeights[itemNameToCheck];
+                            if (typeof specificLimit === 'number') {
+                                const currentItemWeightInPlayerInv = this.getCurrentItemTypeWeight(this.playerInventory, sourceItem.name);
+                                if ((currentItemWeightInPlayerInv + weightOfItemsToTransfer) > specificLimit) {
+                                    axios.post(`https://qb-inventory/notify`, { message: `You cannot carry any more ${sourceItem.label || sourceItem.name}.`, type: 'error' });
+                                    canProceedAfterWeightChecks = false;
+                                }
+                            }
+                        }
+                    } else if (targetInventoryType === "other") {
+                        const currentTargetWeight = this.otherInventoryWeight || 0;
+                        const maxTargetWeightLimit = this.otherInventoryMaxWeight || 0;
+                        if ((Number(currentTargetWeight) || 0) + weightOfItemsToTransfer > maxTargetWeightLimit) {
+                            axios.post(`https://qb-inventory/notify`, { message: 'Target inventory is too full (weight).', type: 'error' });
                             canProceedAfterWeightChecks = false;
                         }
                     }
                 }
-            } else if (targetInventoryType === "other") { // Moving TO Other (from Player)
-                const currentTargetWeight = this.otherInventoryWeight || 0;
-                const maxTargetWeightLimit = this.otherInventoryMaxWeight || 0;
-                if ((Number(currentTargetWeight) || 0) + weightOfItemsToTransfer > maxTargetWeightLimit) {
-                    axios.post(`https://qb-inventory/notify`, { message: 'Target inventory is too full (weight).', type: 'error' });
-                    canProceedAfterWeightChecks = false;
+                if (!canProceedAfterWeightChecks) {
+                    throw new Error("Weight check failed (handleItemDrop).");
                 }
-                // Item-specific limits usually don't apply when moving *to* 'other' general inventories client-side.
-            }
-        } // <<< END OF INTER-INVENTORY WEIGHT CHECKS
+                // --- End Weight Checks ---
 
-        if (!canProceedAfterWeightChecks) {
-            throw new Error("Weight check failed.");
-        }
-        // --- End Weight Checks ---
+                // ... (Your existing logic for actionTaken, finalTargetSlot, stacking, swapping, placing new)
+                // This logic should now use `amountToTransfer` (which is `quantityToUse`).
+                // Ensure findNextAvailableSlot is called with `maxSlotsForTarget`
+                // Example snippet for placement:
+                // if (actionTaken === 'stack_existing') {
+                //    targetInventoryObject[finalTargetSlot].amount += amountToTransfer;
+                // } else {
+                //    targetInventoryObject[finalTargetSlot] = { ...actualSourceItemFromOriginalSlot, amount: amountToTransfer, slot: finalTargetSlot, inventory: targetInventoryType };
+                // }
+                // actualSourceItemFromOriginalSlot.amount -= amountToTransfer;
+                // if (actualSourceItemFromOriginalSlot.amount <= 0) { delete sourceInventoryObject[this.currentlyDraggingSlot]; }
+                // this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, finalTargetSlot, actualSourceItemFromOriginalSlot.amount, amountToTransfer);
 
-        const itemAtDroppedOnSlot = targetInventoryObject[droppedOnSlotNumber];
-        let finalTargetSlot = droppedOnSlotNumber; 
-        let actionTaken = null;
+                // --- (This is the refined placement logic from previous response - ensure it uses amountToTransfer) ---
+                const itemAtDroppedOnSlot = targetInventoryObject[droppedOnSlotNumber];
+                let finalTargetSlot = droppedOnSlotNumber; 
+                let actionTaken = null;
 
-        if (sourceItem.unique) {
-            if (!itemAtDroppedOnSlot) { 
-                actionTaken = 'place_unique_target_slot';
-            } else { 
-                if (this.dragStartInventoryType === targetInventoryType && this.currentlyDraggingSlot !== droppedOnSlotNumber) { 
-                    actionTaken = 'swap_items';
+                if (sourceItem.unique) {
+                    if (!itemAtDroppedOnSlot) { actionTaken = 'place_unique_target_slot'; }
+                    else { 
+                        if (this.dragStartInventoryType === targetInventoryType && this.currentlyDraggingSlot !== droppedOnSlotNumber) { actionTaken = 'swap_items'; }
+                        else { 
+                            finalTargetSlot = this.findNextAvailableSlot(targetInventoryObject, maxSlotsForTarget); 
+                            actionTaken = 'place_unique_next_slot';
+                        }
+                    }
+                } else { /* Stackable Item logic as per previous correct version */ 
+                    let existingCompatibleStackSlot = null;
+                    if (itemAtDroppedOnSlot && itemAtDroppedOnSlot.name === sourceItem.name && !itemAtDroppedOnSlot.unique && !(this.dragStartInventoryType === targetInventoryType && droppedOnSlotNumber === this.currentlyDraggingSlot) ) {
+                        existingCompatibleStackSlot = droppedOnSlotNumber;
+                    } else { /* ... search ... */ 
+                        for (const slotKey in targetInventoryObject) {
+                            const tItem = targetInventoryObject[slotKey];
+                            if (this.dragStartInventoryType === targetInventoryType && parseInt(slotKey, 10) === this.currentlyDraggingSlot) { continue; }
+                            if (tItem && tItem.name === sourceItem.name && !tItem.unique) {
+                                existingCompatibleStackSlot = parseInt(tItem.slot, 10); break;
+                            }
+                        }
+                    }
+                    if (existingCompatibleStackSlot !== null) { finalTargetSlot = existingCompatibleStackSlot; actionTaken = 'stack_existing';}
+                    else { 
+                        if (!itemAtDroppedOnSlot) { finalTargetSlot = droppedOnSlotNumber; actionTaken = 'place_new_stack_target_slot';}
+                        else { 
+                            if (this.dragStartInventoryType === targetInventoryType && this.currentlyDraggingSlot !== droppedOnSlotNumber) { actionTaken = 'swap_items';}
+                            else { finalTargetSlot = this.findNextAvailableSlot(targetInventoryObject, maxSlotsForTarget); actionTaken = 'place_new_stack_next_slot';}
+                        }
+                    }
+                }
+                if (finalTargetSlot === null && actionTaken !== 'swap_items' && actionTaken !== 'stack_existing') { throw new Error("No available slot for new item placement.");}
+                
+                if (actionTaken === 'swap_items') { /* ... your swap logic ... using amountToTransfer ... */ 
+                    const itemBeingSwappedOut = { ...itemAtDroppedOnSlot }; 
+                    targetInventoryObject[droppedOnSlotNumber] = { ...actualSourceItemFromOriginalSlot, amount: amountToTransfer, slot: droppedOnSlotNumber, inventory: targetInventoryType };
+                    sourceInventoryObject[this.currentlyDraggingSlot] = { ...itemBeingSwappedOut, slot: this.currentlyDraggingSlot, inventory: this.dragStartInventoryType };
+                    this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, droppedOnSlotNumber, itemBeingSwappedOut.amount, amountToTransfer);
+                } else if (actionTaken === 'stack_existing') {
+                    targetInventoryObject[finalTargetSlot].amount += amountToTransfer;
+                    actualSourceItemFromOriginalSlot.amount -= amountToTransfer;
+                    if (actualSourceItemFromOriginalSlot.amount <= 0) { delete sourceInventoryObject[this.currentlyDraggingSlot]; }
+                    this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, finalTargetSlot, actualSourceItemFromOriginalSlot.amount, amountToTransfer);
                 } else { 
-                    finalTargetSlot = this.findNextAvailableSlot(targetInventoryObject, maxSlotsForTarget); // Corrected call
-                    actionTaken = 'place_unique_next_slot';
+                    if(finalTargetSlot === null) { throw new Error("Final target slot is null for placement action."); }
+                    targetInventoryObject[finalTargetSlot] = { ...actualSourceItemFromOriginalSlot, amount: amountToTransfer, slot: finalTargetSlot, inventory: targetInventoryType };
+                    actualSourceItemFromOriginalSlot.amount -= amountToTransfer;
+                    if (actualSourceItemFromOriginalSlot.amount <= 0) { delete sourceInventoryObject[this.currentlyDraggingSlot]; }
+                    this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, finalTargetSlot, actualSourceItemFromOriginalSlot.amount, amountToTransfer);
                 }
-            }
-        } else { // Stackable Item
-            let existingCompatibleStackSlot = null;
-            if (itemAtDroppedOnSlot && itemAtDroppedOnSlot.name === sourceItem.name && !itemAtDroppedOnSlot.unique && 
-                !(this.dragStartInventoryType === targetInventoryType && droppedOnSlotNumber === this.currentlyDraggingSlot) ) {
-                 existingCompatibleStackSlot = droppedOnSlotNumber;
-            } else {
-                for (const slotKey in targetInventoryObject) {
-                    const tItem = targetInventoryObject[slotKey];
-                    if (this.dragStartInventoryType === targetInventoryType && parseInt(slotKey, 10) === this.currentlyDraggingSlot) {
-                        continue; 
-                    }
-                    if (tItem && tItem.name === sourceItem.name && !tItem.unique) {
-                        existingCompatibleStackSlot = parseInt(tItem.slot, 10);
-                        break;
-                    }
-                }
-            }
+                // --- End of placement logic ---
 
-            if (existingCompatibleStackSlot !== null) {
-                finalTargetSlot = existingCompatibleStackSlot;
-                actionTaken = 'stack_existing';
-            } else { 
-                if (!itemAtDroppedOnSlot) { 
-                    finalTargetSlot = droppedOnSlotNumber;
-                    actionTaken = 'place_new_stack_target_slot';
-                } else { 
-                    if (this.dragStartInventoryType === targetInventoryType && this.currentlyDraggingSlot !== droppedOnSlotNumber) { 
-                        actionTaken = 'swap_items';
-                    } else { 
-                        finalTargetSlot = this.findNextAvailableSlot(targetInventoryObject, maxSlotsForTarget); // Corrected call
-                        actionTaken = 'place_new_stack_next_slot';
-                    }
-                }
+            } catch (error) {
+                console.error("[handleItemDrop] Error:", error.message);
+                this.inventoryError(this.currentlyDraggingSlot || 'drag-error');
+            } finally {
+                this.clearDragData(); // This will now be called after popup or direct intra-inventory move
             }
-        }
-
-        if (finalTargetSlot === null && actionTaken !== 'swap_items' && actionTaken !== 'stack_existing') {
-             axios.post(`https://qb-inventory/notify`, { message: 'No available slot in target inventory.', type: 'error' });
-            throw new Error("No available slot for new item placement.");
-        }
-        
-        // --- Perform the inventory update ---
-        if (actionTaken === 'swap_items') {
-            // This implies dragStartInventoryType === targetInventoryType, 
-            // itemAtDroppedOnSlot exists, is different, and currentlyDraggingSlot !== droppedOnSlotNumber.
-            console.log(`[handleItemDrop] SWAP: Item from slot ${this.currentlyDraggingSlot} with item from slot ${droppedOnSlotNumber}`);
-            
-            const itemBeingSwappedOut = { ...itemAtDroppedOnSlot }; 
-            const draggedItemStack = { ...actualSourceItemFromOriginalSlot }; // Original state of dragged item for properties
-
-            // Update target slot with (part of) dragged item
-            targetInventoryObject[droppedOnSlotNumber] = { ...draggedItemStack, amount: finalAmountToTransfer, slot: droppedOnSlotNumber, inventory: targetInventoryType };
-            
-            // Update source slot with item that was in target slot
-            sourceInventoryObject[this.currentlyDraggingSlot] = { ...itemBeingSwappedOut, slot: this.currentlyDraggingSlot, inventory: this.dragStartInventoryType };
-
-            // If only a partial stack was "swapped" from source, the remainder is now gone from the source slot
-            if (finalAmountToTransfer < actualSourceItemFromOriginalSlot.amount) {
-                console.warn("Swap initiated with partial stack drag. The remainder of the source stack is overwritten in this simple swap model.");
-                // To handle this better, the source stack would need to be split, one part swapped, one part remaining.
-                // For now, this logic means the entire original slot's content is replaced by the swapped item.
-            }
-
-            this.postInventoryData(
-                this.dragStartInventoryType, targetInventoryType,
-                this.currentlyDraggingSlot,  
-                droppedOnSlotNumber,         
-                itemBeingSwappedOut.amount, 
-                finalAmountToTransfer        
-            );
-        } else if (actionTaken === 'stack_existing') {
-            targetInventoryObject[finalTargetSlot].amount += finalAmountToTransfer;
-            actualSourceItemFromOriginalSlot.amount -= finalAmountToTransfer;
-            if (actualSourceItemFromOriginalSlot.amount <= 0) {
-                delete sourceInventoryObject[this.currentlyDraggingSlot];
-            }
-            this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, finalTargetSlot, actualSourceItemFromOriginalSlot.amount, finalAmountToTransfer);
-        } else { 
-            // Handles place_unique_target_slot, place_unique_next_slot, 
-            // place_new_stack_target_slot, place_new_stack_next_slot
-            if(finalTargetSlot === null) { 
-                throw new Error("Final target slot is null for placement action.");
-            }
-            targetInventoryObject[finalTargetSlot] = { 
-                ...actualSourceItemFromOriginalSlot, 
-                amount: finalAmountToTransfer, 
-                slot: finalTargetSlot, 
-                inventory: targetInventoryType 
-            };
-            actualSourceItemFromOriginalSlot.amount -= finalAmountToTransfer;
-            if (actualSourceItemFromOriginalSlot.amount <= 0) {
-                delete sourceInventoryObject[this.currentlyDraggingSlot];
-            }
-            this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, finalTargetSlot, actualSourceItemFromOriginalSlot.amount, finalAmountToTransfer);
-        }
-    } catch (error) {
-        console.error("[handleItemDrop] Error:", error.message);
-        this.inventoryError(this.currentlyDraggingSlot || 'drag-error');
-    } finally {
-        this.clearDragData();
-    }
-},
+        },
         async handlePurchase(targetSlot, sourceSlot, sourceItem, transferAmount) {
             try {
                 const response = await axios.post("https://qb-inventory/AttemptPurchase", {
