@@ -216,7 +216,7 @@
                     
                     <div class="popup-input-group">
                         <label for="givePlayerId">Player ID:</label>
-                        <input type="number" id="givePlayerId" v-model.number="giveTargetPlayerId" placeholder="Server ID of recipient" ref="givePlayerIdInput" />
+                        <input type="number" id="givePlayerId" v-model.number="giveTargetPlayerId" placeholder="Server ID of recipient" ref="givePlayerIdInput" min="0" />
                     </div>
 
                     <div class="popup-input-group">
@@ -226,7 +226,7 @@
                                 v-model.number="giveQuantity" 
                                 min="1" 
                                 :max="itemToGive?.amount" 
-                                placeholder="Enter quantity" />
+                                placeholder="Enter quantity" value="" />
                             <span class="quantity-max-button" @click="setGiveQuantityToMax">MAX</span>
                         </div>
                     </div>

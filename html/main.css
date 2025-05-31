@@ -837,3 +837,9 @@ div {
 .give-item-popup .popup-buttons button:last-of-type:hover {
     background-color: var(--surface-container-high, #2b2930);
 }
+
+.give-item-popup input[type="number"]::-webkit-outer-spin-button,
+.give-item-popup input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}

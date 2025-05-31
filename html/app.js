@@ -142,7 +142,7 @@ const InventoryContainer = Vue.createApp({
                 showGiveItemPopup: false,
                 itemToGive: null,
                 giveTargetPlayerId: null,
-                giveQuantity: 1, // Default quantity for give popup
+                giveQuantity: null, // Default quantity for give popup
             };
         },
         openInventory(data) {
@@ -575,7 +575,7 @@ const InventoryContainer = Vue.createApp({
             if (this.playerInventory && this.playerInventory[this.contextMenuItem.slot] === this.contextMenuItem) {
                 this.itemToGive = this.contextMenuItem;
                 this.giveTargetPlayerId = null; // Reset Player ID field
-                this.giveQuantity = 1;          // Default quantity to 1
+                this.giveQuantity = null;          // Default quantity to 1
                 this.showGiveItemPopup = true;
                 this.showContextMenu = false;     // Close main context menu
                 this.$nextTick(() => {
