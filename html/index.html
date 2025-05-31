@@ -64,14 +64,14 @@
                     </div>
                 </div>
 
-                <div class="input-container" v-if="!isOtherInventoryEmpty">
+                <!-- <div class="input-container" v-if="!isOtherInventoryEmpty">
                     <div class="input-wrapper">
                         <input type="number" v-model="transferAmount" min="1" :placeholder="transferAmount === null ? 'amount' : ''" />
                         <button @click="clearTransferAmount" class="clear-button">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
-                </div>
+                </div> -->
 
                 <!-- Other Inventory Section -->
                 <div class="inventory-section other-inventory-section" v-if="!isOtherInventoryEmpty">
@@ -207,10 +207,25 @@
                         <li @click="giveItem(contextMenuItem, 'all')">All</li>
                     </ul>
                 </li>
-                <li @click="splitAndPlaceItem(contextMenuItem, 'player')">Split</li>
+                <li v-if="contextMenuItem && !isOtherInventoryEmpty && !otherInventoryName.startsWith('shop-')"
+                    @click="promptMoveQuantity(contextMenuItem)">
+                    Move
+                </li>
+                <!-- <li @click="splitAndPlaceItem(contextMenuItem, 'player')">Split</li> -->
                 <li v-if="contextMenuItem.name.includes('weapon_')" @click="copySerial(contextMenuItem)">Copy Serial</li>
                 <li v-if="contextMenuItem.name.includes('weapon_')" @click="openWeaponAttachments(contextMenuItem)">Attachments</li>
             </ul>
+            <div class="quantity-popup-overlay" v-if="showQuantityPopup">
+                <div class="quantity-popup">
+                    <h4>Move {{ itemToMove?.label }}</h4>
+                    <p>Enter quantity:</p>
+                    <input type="number" v-model.number="popupTransferAmount" min="1" :max="itemToMove?.amount" ref="quantityPopupInput" @keydown.enter="confirmMoveQuantity" @keydown.esc="cancelMoveQuantity" />
+                    <div class="popup-buttons">
+                        <button @click="confirmMoveQuantity">OK</button>
+                        <button @click="cancelMoveQuantity">Cancel</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </body>
 </html>

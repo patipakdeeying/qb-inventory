@@ -46,8 +46,34 @@ const InventoryContainer = Vue.createApp({
         },
     },
     watch: {
-        transferAmount(newVal) {
-            if (newVal !== null && newVal < 1) this.transferAmount = 1;
+        popupTransferAmount(newVal) {
+            if (this.itemToMove) { // Ensure we have an item context
+                if (newVal === null || newVal === '') {
+                    // Allow it to be empty momentarily for typing, or set to 1
+                    // this.popupTransferAmount = ''; // Or handle as desired
+                    return;
+                }
+                const val = parseInt(newVal, 10);
+                if (isNaN(val) || val < 1) {
+                    this.popupTransferAmount = 1;
+                } else if (val > this.itemToMove.amount) {
+                    this.popupTransferAmount = this.itemToMove.amount;
+                } else {
+                    this.popupTransferAmount = val; // Ensure it's the parsed number
+                }
+            } else if (newVal < 1 && newVal !== null) {
+                this.popupTransferAmount = 1;
+            }
+        },
+        showQuantityPopup(isShowing) {
+            if (isShowing) {
+                this.$nextTick(() => { // Wait for the DOM to update
+                    if (this.$refs.quantityPopupInput) {
+                        this.$refs.quantityPopupInput.focus();
+                        this.$refs.quantityPopupInput.select();
+                    }
+                });
+            }
         },
     },
     methods: {
@@ -106,87 +132,109 @@ const InventoryContainer = Vue.createApp({
                 transferAmount: null,
                 //added for item specific weight limits
                 itemSpecificMaxWeights: {},
+                //
+                showQuantityPopup: false,
+                itemToMove: null,         // To store the item being considered for moving
+                popupTransferAmount: 1,
             };
         },
         openInventory(data) {
+            console.log("app.js: openInventory() called with data:", data);
             if (this.showHotbar) {
-                this.toggleHotbar(false);
+                // Assuming toggleHotbar expects an object like { open: false, items: [] }
+                // Adjust if your toggleHotbar definition is different.
+                this.toggleHotbar({ open: false, items: [] });
             }
 
             this.isInventoryOpen = true;
-            this.maxWeight = data.maxweight;
-            this.totalSlots = data.slots;
+            this.maxWeight = data.maxweight; // Player's max weight
+            this.totalSlots = data.slots;   // Player's total slots
+            
             this.playerInventory = {};
             this.otherInventory = {};
+            // Default other inventory states
+            this.otherInventoryName = "";
+            this.otherInventoryLabel = "Drop"; // Default label if none provided
+            this.otherInventoryMaxWeight = 0; // Default if none provided
+            this.otherInventorySlots = 0;     // Default if none provided
+            this.isShopInventory = false;
+            this.isOtherInventoryEmpty = true; // Assume other inventory is empty initially
 
+            // Process player inventory
             if (data.inventory) {
+                const processPlayerItem = (item) => {
+                    if (item && typeof item.slot !== 'undefined') { // Check for slot existence
+                        this.playerInventory[item.slot] = { ...item, inventory: 'player' }; // Add 'inventory' property
+                    }
+                };
                 if (Array.isArray(data.inventory)) {
-                    data.inventory.forEach((item) => {
-                        if (item && item.slot) {
-                            this.playerInventory[item.slot] = item;
-                        }
-                    });
-                } else if (typeof data.inventory === "object") {
+                    data.inventory.forEach(processPlayerItem);
+                } else if (typeof data.inventory === "object" && data.inventory !== null) {
                     for (const key in data.inventory) {
-                        const item = data.inventory[key];
-                        if (item && item.slot) {
-                            this.playerInventory[item.slot] = item;
-                        }
+                        processPlayerItem(data.inventory[key]);
                     }
                 }
             }
 
-            if (data.other) {
-                if (data.other && data.other.inventory) {
+            // Process other inventory
+            if (data.other && typeof data.other === 'object' && data.other !== null) {
+                this.otherInventoryName = data.other.name || "";
+                this.otherInventoryLabel = data.other.label || "Drop";
+                this.otherInventoryMaxWeight = data.other.maxweight || 0;
+                this.otherInventorySlots = data.other.slots || 0;
+                this.isShopInventory = this.otherInventoryName.startsWith("shop-");
+
+                if (data.other.inventory && (Array.isArray(data.other.inventory) || typeof data.other.inventory === "object" && data.other.inventory !== null)) {
+                    let itemCountInOther = 0;
+                    const processOtherItem = (item) => {
+                        if (item && typeof item.slot !== 'undefined') {
+                            this.otherInventory[item.slot] = { ...item, inventory: 'other' }; // Add 'inventory' property
+                            itemCountInOther++;
+                        }
+                    };
+
                     if (Array.isArray(data.other.inventory)) {
-                        data.other.inventory.forEach((item) => {
-                            if (item && item.slot) {
-                                this.otherInventory[item.slot] = item;
-                            }
-                        });
-                    } else if (typeof data.other.inventory === "object") {
+                        data.other.inventory.forEach(processOtherItem);
+                    } else { // Is an object
                         for (const key in data.other.inventory) {
-                            const item = data.other.inventory[key];
-                            if (item && item.slot) {
-                                this.otherInventory[item.slot] = item;
-                            }
+                            processOtherItem(data.other.inventory[key]);
                         }
                     }
-                }
-
-                this.otherInventoryName = data.other.name;
-                this.otherInventoryLabel = data.other.label;
-                this.otherInventoryMaxWeight = data.other.maxweight;
-                this.otherInventorySlots = data.other.slots;
-
-                if (this.otherInventoryName.startsWith("shop-")) {
-                    this.isShopInventory = true;
+                    this.isOtherInventoryEmpty = itemCountInOther === 0;
                 } else {
-                    this.isShopInventory = false;
+                    // data.other exists but data.other.inventory is empty or not provided
+                    this.isOtherInventoryEmpty = true;
                 }
-
-                this.isOtherInventoryEmpty = false;
+            } else {
+                // No data.other object at all
+                this.isOtherInventoryEmpty = true;
             }
+            
+            console.log("app.js: isInventoryOpen set to true");
+            // For debugging, you can log the inventories to check:
+            // console.log("Player Inv (with .inventory):", JSON.parse(JSON.stringify(this.playerInventory)));
+            // console.log("Other Inv (with .inventory):", JSON.parse(JSON.stringify(this.otherInventory)));
         },
-        updateInventory(data) {
-            this.playerInventory = {};
+        updateInventory(data) { // This method also needs to add the 'inventory' property
+            console.log("app.js: updateInventory() called with data:", data);
+            this.playerInventory = {}; // Reset before update
 
             if (data.inventory) {
+                const processPlayerItem = (item) => {
+                    if (item && typeof item.slot !== 'undefined') {
+                        this.playerInventory[item.slot] = { ...item, inventory: 'player' }; // Add 'inventory' property
+                    }
+                };
                 if (Array.isArray(data.inventory)) {
-                    data.inventory.forEach((item) => {
-                        if (item && item.slot) {
-                            this.playerInventory[item.slot] = item;
-                        }
-                    });
-                } else if (typeof data.inventory === "object") {
+                    data.inventory.forEach(processPlayerItem);
+                } else if (typeof data.inventory === "object" && data.inventory !== null) {
                     for (const key in data.inventory) {
-                        const item = data.inventory[key];
-                        if (item && item.slot) {
-                            this.playerInventory[item.slot] = item;
-                        }
+                        processPlayerItem(data.inventory[key]);
                     }
                 }
             }
+            // For debugging:
+            // console.log("Player Inv after update (with .inventory):", JSON.parse(JSON.stringify(this.playerInventory)));
         },
         async closeInventory() {
             this.clearDragData();
@@ -198,6 +246,40 @@ const InventoryContainer = Vue.createApp({
                 console.error("Error closing inventory:", error);
             }
         },
+        // --- NEW METHODS for Quantity Popup ---
+        promptMoveQuantity(item) {
+            if (!item || this.isOtherInventoryEmpty || this.otherInventoryName.startsWith("shop-")) {
+                return; // Don't show popup if not applicable
+            }
+            this.itemToMove = item;
+            this.popupTransferAmount = 1; // Default to 1 or Math.min(1, item.amount) if you prefer
+            this.showQuantityPopup = true;
+            this.showContextMenu = false; // Hide the main context menu
+        },
+
+        confirmMoveQuantity() {
+            console.log("[confirmMoveQuantity] Item to move:", this.itemToMove ? JSON.parse(JSON.stringify(this.itemToMove)) : null, "Amount:", this.popupTransferAmount);
+            if (this.itemToMove && this.popupTransferAmount > 0 && this.itemToMove.amount >= this.popupTransferAmount) {
+                const sourceInventoryType = this.itemToMove.inventory; // This is where it needs the property
+
+                if (!sourceInventoryType) { // This condition should no longer be met if openInventory is fixed
+                    console.error("[confirmMoveQuantity] Error: itemToMove is missing 'inventory' property!");
+                    this.cancelMoveQuantity(); // Or your method to close the popup
+                    return;
+                }
+                this.moveItemBetweenInventories(this.itemToMove, sourceInventoryType, this.popupTransferAmount);
+            } else {
+                console.error("[confirmMoveQuantity] Condition not met, invalid amount, or no item to move.");
+            }
+            this.cancelMoveQuantity(); // Or your method to close the popup (e.g., closeQuantityPopup)
+        },
+        // Ensure you have one of these defined:
+        cancelMoveQuantity() { // This is the likely correct name now
+            this.showQuantityPopup = false;
+            this.itemToMove = null;
+            this.popupTransferAmount = 1;
+        },
+        // --- END NEW METHODS ---
         clearTransferAmount() {
             this.transferAmount = null;
         },
@@ -233,12 +315,12 @@ const InventoryContainer = Vue.createApp({
                 this.showContextMenuOptions(event, itemInSlot);
             }
         },
-        moveItemBetweenInventories(item, sourceInventoryType) {
+        moveItemBetweenInventories(item, sourceInventoryType, quantityToTransfer) {
             const sourceInventory = sourceInventoryType === "player" ? this.playerInventory : this.otherInventory;
             const targetInventory = sourceInventoryType === "player" ? this.otherInventory : this.playerInventory;
             const targetWeight = sourceInventoryType === "player" ? this.otherInventoryWeight : this.playerWeight;
             const maxTargetWeight = sourceInventoryType === "player" ? this.otherInventoryMaxWeight : this.maxWeight;
-            const amountToTransfer = this.transferAmount !== null ? this.transferAmount : 1;
+            const amountToTransfer = quantityToTransfer;
             let targetSlot = null;
 
             const sourceItem = sourceInventory[item.slot];
@@ -570,51 +652,29 @@ const InventoryContainer = Vue.createApp({
         },
         showContextMenuOptions(event, item) {
             event.preventDefault();
-            if (this.contextMenuItem && this.contextMenuItem.name === item.name && this.showContextMenu) {
+
+            // If clicking the same item that already has the context menu open, toggle it off.
+            if (this.showContextMenu && this.contextMenuItem && this.contextMenuItem.slot === item.slot && this.contextMenuItem.inventory === item.inventory) {
                 this.showContextMenu = false;
                 this.contextMenuItem = null;
-            } else {
-                if (item.inventory === "other") {
-                    const matchingItemKey = Object.keys(this.playerInventory).find((key) => this.playerInventory[key].name === item.name);
-                    const matchingItem = this.playerInventory[matchingItemKey];
-
-                    if (matchingItem && matchingItem.unique) {
-                        const newItemKey = Object.keys(this.playerInventory).length + 1;
-                        const newItem = {
-                            ...item,
-                            inventory: "player",
-                            amount: 1,
-                        };
-                        this.playerInventory[newItemKey] = newItem;
-                    } else if (matchingItem) {
-                        matchingItem.amount++;
-                    } else {
-                        const newItemKey = Object.keys(this.playerInventory).length + 1;
-                        const newItem = {
-                            ...item,
-                            inventory: "player",
-                            amount: 1,
-                        };
-                        this.playerInventory[newItemKey] = newItem;
-                    }
-                    item.amount--;
-
-                    if (item.amount <= 0) {
-                        const itemKey = Object.keys(this.otherInventory).find((key) => this.otherInventory[key] === item);
-                        if (itemKey) {
-                            delete this.otherInventory[itemKey];
-                        }
-                    }
-                }
-                const menuLeft = event.clientX;
-                const menuTop = event.clientY;
-                this.showContextMenu = true;
-                this.contextMenuPosition = {
-                    top: `${menuTop}px`,
-                    left: `${menuLeft}px`,
-                };
-                this.contextMenuItem = item;
+                return; // Exit early
             }
+
+            // --- REMOVE THE ENTIRE BLOCK THAT DID THE VISUAL TRANSFER ---
+            // The old problematic block starting with "if (item.inventory === 'other')" should be deleted.
+            // ---
+
+            // Set position and item for the context menu
+            const menuLeft = event.clientX;
+            const menuTop = event.clientY;
+
+            this.contextMenuPosition = {
+                top: `${menuTop}px`,
+                left: `${menuLeft}px`,
+            };
+            this.contextMenuItem = item; // Set the item that was right-clicked
+            this.showContextMenu = true;   // Show the menu
+            this.showSubmenu = false;      // Ensure submenu is reset if you have one
         },
         async giveItem(item, quantity) {
             if (item && item.name) {
@@ -857,6 +917,7 @@ const InventoryContainer = Vue.createApp({
         });
 
         window.addEventListener("message", (event) => {
+            console.log("[NUI Message Received from LUA]:", JSON.stringify(event.data, null, 2));
             switch (event.data.action) {
                 case "open":
                     this.openInventory(event.data);
