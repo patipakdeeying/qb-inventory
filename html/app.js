@@ -330,20 +330,36 @@ const InventoryContainer = Vue.createApp({
                 this.showContextMenu = false;
             }
         },
-        handleMouseDown(event, slot, inventory) {
-            if (event.button === 1) return; // skip middle mouse
-            event.preventDefault();
-            const itemInSlot = this.getItemInSlot(slot, inventory);
-            if (event.button === 0) {
-                if (itemInSlot) {
-                    this.startDrag(event, slot, inventory);
-                }
-            } else if (event.button === 2 && itemInSlot) {
-                if (this.otherInventoryName.startsWith("shop-")) {
-                    this.handlePurchase(slot, itemInSlot.slot, itemInSlot, 1);
+        handleMouseDown(event, slot, inventoryType) { // Parameter 'inventory' renamed to 'inventoryType' for clarity
+            if (event.button === 1) return; // Skip middle mouse click
+
+            const itemInSlot = this.getItemInSlot(slot, inventoryType);
+
+            // If there's no item in the slot, we usually don't want to do anything further,
+            // especially preventing default browser context menus if the click was on an empty slot.
+            // However, if you always want to prevent default on any mousedown in a slot, keep preventDefault() higher.
+            // For now, we'll only proceed with custom logic if there's an item.
+            if (!itemInSlot) {
+                return;
+            }
+
+            event.preventDefault(); // Prevent default browser actions (like context menu) for actual item interactions
+
+            if (event.button === 0) { // Left-click
+                this.startDrag(event, slot, inventoryType);
+            } else if (event.button === 2) { // Right-click
+                // Check if the right-clicked item is in a shop within the "other" inventory
+                if (inventoryType === 'other' && this.otherInventoryName.startsWith("shop-")) {
+                    this.handlePurchase(slot, itemInSlot.slot, itemInSlot, 1); // Assuming slot is 'sourceSlot' for purchase
                     return;
                 }
-                this.showContextMenuOptions(event, itemInSlot);
+
+                // Only show our custom context menu if the item is in the 'player' inventory
+                if (inventoryType === 'player') {
+                    this.showContextMenuOptions(event, itemInSlot);
+                }
+                // If inventoryType is 'other' (and not a shop), no custom context menu will be shown.
+                // Since event.preventDefault() was called, the default browser context menu won't show either.
             }
         },
         moveItemBetweenInventories(item, sourceInventoryType, quantityToTransfer) {

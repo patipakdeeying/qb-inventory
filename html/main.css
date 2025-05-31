@@ -637,6 +637,13 @@ div {
     -moz-appearance: textfield; /* Remove spinners in Firefox */
 }
 
+.quantity-popup input[type="number"]::placeholder {
+    color: var(--on-surface-variant, #79747e); /* Use a muted color from your theme */
+    font-style: italic; /* Optional: make it italic */
+    font-size: 0.9em; /* Optional: slightly smaller than input text */
+    /* Add any other styles you want for the placeholder */
+}
+
 .quantity-popup input[type="number"]:focus {
     border-color: var(--primary, #f44336); /* Highlight with primary color on focus */
     box-shadow: 0 0 0 2px rgba(var(--primary-rgb, 244, 67, 54), 0.3); /* Optional: subtle focus ring (needs --primary-rgb or direct rgba) */
