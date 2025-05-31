@@ -484,6 +484,20 @@ const InventoryContainer = Vue.createApp({
             // Optional: A final success log if truly needed, but usually not for production
             // console.log(`[moveItemBetweenInventories] SUCCESS: ${sourceItem.name} processed for move.`);
         },
+        setPopupAmountToMax() {
+            if (this.itemToMove && typeof this.itemToMove.amount === 'number') {
+                this.popupTransferAmount = this.itemToMove.amount; // Set to max available amount of the item
+                
+                // Optionally, focus the input field again after setting the value
+                this.$nextTick(() => {
+                    if (this.$refs.quantityPopupInput) {
+                        this.$refs.quantityPopupInput.focus();
+                        // You might also want to select the text:
+                        // this.$refs.quantityPopupInput.select(); 
+                    }
+                });
+            }
+        },
         startDrag(event, slot, inventoryType) {
             event.preventDefault();
             const item = this.getItemInSlot(slot, inventoryType);

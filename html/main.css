@@ -613,28 +613,23 @@ div {
     color: var(--on-surface, #e6e1e5);
 }
 
-.quantity-popup p { /* Style for "Enter quantity:" text */
-    font-family: var(--font-primary, "Exo 2", sans-serif);
-    font-size: 0.9em;
-    margin-bottom: 15px; /* Spacing before input */
-    color: var(--on-surface-variant, #79747e); /* Slightly muted color for helper text */
-}
-
 .quantity-popup input[type="number"] {
-    width: 100%; /* Full width within padding */
-    padding: 12px 10px; /* Comfortable padding */
-    margin-bottom: 25px; /* More space before buttons */
+    flex-grow: 1;
+    padding: 12px 10px; 
+    /* Add more padding on the right to make space FOR the absolutely positioned MAX button */
+    padding-right: 60px; /* Adjust this value based on the MAX button's width + desired spacing */
     box-sizing: border-box;
     text-align: center;
     font-family: var(--font-primary, "Exo 2", sans-serif);
     font-size: 1.1em;
     color: var(--on-surface, #e6e1e5);
-    background-color: var(--surface-container-lowest, #0f0d13); /* Darker input background */
-    border: 1px solid var(--outline-variant, #49454f); /* Subtle border */
-    border-radius: var(--radius-small, 8px); /* Consistent rounding */
+    background-color: var(--surface-container-lowest, #0f0d13); 
+    border: 1px solid var(--outline-variant, #49454f); 
+    border-radius: var(--radius-small, 8px); 
     outline: none;
-    appearance: textfield; /* Remove spinners in Chrome/Edge/Safari */
-    -moz-appearance: textfield; /* Remove spinners in Firefox */
+    appearance: textfield; 
+    -moz-appearance: textfield; 
+    margin-bottom: 0; /* Wrapper handles bottom margin */
 }
 
 .quantity-popup input[type="number"]::placeholder {
@@ -645,16 +640,55 @@ div {
 }
 
 .quantity-popup input[type="number"]:focus {
-    border-color: var(--primary, #f44336); /* Highlight with primary color on focus */
-    box-shadow: 0 0 0 2px rgba(var(--primary-rgb, 244, 67, 54), 0.3); /* Optional: subtle focus ring (needs --primary-rgb or direct rgba) */
+    border-color: var(--primary, #f44336); 
+    box-shadow: 0 0 0 2px rgba(244, 67, 54, 0.3); 
 }
 
 /* Remove default spinners for Webkit (Chrome, Safari, Edge) */
+/* Spinners removal (already there, good) */
 .quantity-popup input[type="number"]::-webkit-outer-spin-button,
 .quantity-popup input[type="number"]::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
 }
+
+/* NEW styles for the wrapper and MAX button */
+.quantity-input-wrapper {
+    position: relative; 
+    display: flex; 
+    align-items: center;
+    width: 100%;
+    margin-bottom: 25px; 
+}
+
+.quantity-max-button {
+    position: absolute; /* Position it absolutely within the wrapper */
+    right: 6px;         /* Distance from the right edge of the wrapper/input padding area */
+    top: 50%;
+    transform: translateY(-50%); /* Vertically center it */
+    
+    padding: 5px 8px;   /* Adjust padding for a tight fit */
+    background-color: transparent; /* Make it blend initially, like a placeholder part */
+    color: var(--primary, #f44336); /* Use primary color to make it look actionable */
+    font-weight: var(--font-weight-bold, 700);
+    font-size: 0.8em; 
+    border-radius: var(--radius-small, 4px); /* Optional: slight rounding for the button itself */
+    cursor: pointer;
+    user-select: none; 
+    border: none; /* No border to make it look like text */
+    transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.quantity-max-button:hover {
+    color: var(--secondary, #d32f2f); /* Darken/change color on hover to indicate interactivity */
+    /* Optional: add a very subtle background on hover if desired */
+    /* background-color: var(--surface-container, rgba(255,255,255,0.05)); */
+}
+
+.quantity-max-button:active {
+    transform: translateY(-50%) scale(0.95); /* Slight scale down on click + keep vertical centering */
+}
+
 
 .quantity-popup .popup-buttons {
     display: flex;
