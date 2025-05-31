@@ -139,32 +139,31 @@ const InventoryContainer = Vue.createApp({
             };
         },
         openInventory(data) {
-            console.log("app.js: openInventory() called with data:", data);
+            console.log("app.js: openInventory() called with data:", JSON.parse(JSON.stringify(data))); // Log incoming data
             if (this.showHotbar) {
-                // Assuming toggleHotbar expects an object like { open: false, items: [] }
-                // Adjust if your toggleHotbar definition is different.
                 this.toggleHotbar({ open: false, items: [] });
             }
 
             this.isInventoryOpen = true;
-            this.maxWeight = data.maxweight; // Player's max weight
-            this.totalSlots = data.slots;   // Player's total slots
+            this.maxWeight = data.maxweight;
+            this.totalSlots = data.slots;
             
             this.playerInventory = {};
             this.otherInventory = {};
-            // Default other inventory states
+
+            // Default other inventory states before processing data.other
             this.otherInventoryName = "";
-            this.otherInventoryLabel = "Drop"; // Default label if none provided
-            this.otherInventoryMaxWeight = 0; // Default if none provided
-            this.otherInventorySlots = 0;     // Default if none provided
+            this.otherInventoryLabel = "Drop"; // Default if not overridden
+            this.otherInventoryMaxWeight = 0;
+            this.otherInventorySlots = 0;
             this.isShopInventory = false;
-            this.isOtherInventoryEmpty = true; // Assume other inventory is empty initially
+            // this.isOtherInventoryEmpty = true; // We will set this based on data.other below
 
             // Process player inventory
             if (data.inventory) {
                 const processPlayerItem = (item) => {
-                    if (item && typeof item.slot !== 'undefined') { // Check for slot existence
-                        this.playerInventory[item.slot] = { ...item, inventory: 'player' }; // Add 'inventory' property
+                    if (item && typeof item.slot !== 'undefined') {
+                        this.playerInventory[item.slot] = { ...item, inventory: 'player' };
                     }
                 };
                 if (Array.isArray(data.inventory)) {
@@ -177,43 +176,40 @@ const InventoryContainer = Vue.createApp({
             }
 
             // Process other inventory
-            if (data.other && typeof data.other === 'object' && data.other !== null) {
-                this.otherInventoryName = data.other.name || "";
-                this.otherInventoryLabel = data.other.label || "Drop";
-                this.otherInventoryMaxWeight = data.other.maxweight || 0;
-                this.otherInventorySlots = data.other.slots || 0;
+            if (data.other && typeof data.other === 'object' && data.other.name) { // A valid 'other' inventory context exists if data.other is an object with a name
+                this.isOtherInventoryEmpty = false; // <<< KEY CHANGE: If data.other is valid, the panel should show
+
+                this.otherInventoryName = data.other.name;
+                this.otherInventoryLabel = data.other.label || "Drop"; // Use provided label or default
+                this.otherInventoryMaxWeight = data.other.maxweight || Config.DropSize.maxweight; // Fallback to a generic drop size if specific not set
+                this.otherInventorySlots = data.other.slots || Config.DropSize.slots;         // Fallback for slots
                 this.isShopInventory = this.otherInventoryName.startsWith("shop-");
 
-                if (data.other.inventory && (Array.isArray(data.other.inventory) || typeof data.other.inventory === "object" && data.other.inventory !== null)) {
-                    let itemCountInOther = 0;
+                // Now, populate this.otherInventory if items are present
+                if (data.other.inventory && (Array.isArray(data.other.inventory) || (typeof data.other.inventory === "object" && data.other.inventory !== null))) {
                     const processOtherItem = (item) => {
                         if (item && typeof item.slot !== 'undefined') {
-                            this.otherInventory[item.slot] = { ...item, inventory: 'other' }; // Add 'inventory' property
-                            itemCountInOther++;
+                            this.otherInventory[item.slot] = { ...item, inventory: 'other' };
                         }
                     };
-
                     if (Array.isArray(data.other.inventory)) {
                         data.other.inventory.forEach(processOtherItem);
-                    } else { // Is an object
+                    } else { 
                         for (const key in data.other.inventory) {
                             processOtherItem(data.other.inventory[key]);
                         }
                     }
-                    this.isOtherInventoryEmpty = itemCountInOther === 0;
-                } else {
-                    // data.other exists but data.other.inventory is empty or not provided
-                    this.isOtherInventoryEmpty = true;
                 }
+                // Note: The visual emptiness (no items shown in the grid) is handled by the v-for in the template.
+                // isOtherInventoryEmpty now strictly controls if the *panel itself* is rendered.
             } else {
-                // No data.other object at all
+                // No valid data.other was provided, so there is no "other" inventory panel to show.
                 this.isOtherInventoryEmpty = true;
             }
             
-            console.log("app.js: isInventoryOpen set to true");
-            // For debugging, you can log the inventories to check:
-            // console.log("Player Inv (with .inventory):", JSON.parse(JSON.stringify(this.playerInventory)));
-            // console.log("Other Inv (with .inventory):", JSON.parse(JSON.stringify(this.otherInventory)));
+            console.log(`app.js: isInventoryOpen set to ${this.isInventoryOpen}, isOtherInventoryEmpty set to ${this.isOtherInventoryEmpty}`);
+            // console.log("Player Inv after open:", JSON.parse(JSON.stringify(this.playerInventory)));
+            // console.log("Other Inv after open:", JSON.parse(JSON.stringify(this.otherInventory)));
         },
         updateInventory(data) { // This method also needs to add the 'inventory' property
             console.log("app.js: updateInventory() called with data:", data);
