@@ -287,6 +287,34 @@ RegisterNUICallback('RemoveAttachment', function(data, cb)
     end, data.AttachmentData, WeaponData)
 end)
 
+RegisterNUICallback('RemovePlayerItem', function(data, cb)
+    local itemToRemove = data.item -- Expects data.item to be an object
+    local quantity = tonumber(data.quantity)
+
+    -- Condition that leads to "Invalid data from NUI."
+    if not itemToRemove or not itemToRemove.name or not itemToRemove.slot or not quantity or quantity <= 0 then
+        QBCore.Functions.Notify(Lang:t('error.invalid_data_received') or "Invalid data for item removal.", "error")
+        cb({ success = false, message = "Invalid data from NUI." }) 
+        return
+    end
+
+    -- Trigger server event to handle the actual removal
+    -- Pass item name, quantity, and slot. Info might be needed if server logic depends on it for removal conditions.
+    TriggerServerEvent('qb-inventory:server:RemovePlayerItem', itemToRemove.name, quantity, itemToRemove.slot, itemToRemove.info)
+    
+    -- For now, we assume success and let server handle actual logic and potential failure notifications.
+    -- Or, you can make this a TriggerServerCallback if you need immediate confirmation back to NUI.
+    -- For simplicity, let's make it a server callback for better feedback.
+    QBCore.Functions.TriggerCallback('qb-inventory:server:RemovePlayerItemCallback', function(result)
+        if result and result.success then
+            -- Optionally trigger a client-side sound or minor effect
+            cb({ success = true })
+        else
+            cb({ success = false, message = result and result.message or "Failed to remove item on server." })
+        end
+    end, itemToRemove.name, quantity, itemToRemove.slot, itemToRemove.info)
+end)
+
 -- Vending
 
 CreateThread(function()

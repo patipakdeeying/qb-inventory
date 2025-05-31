@@ -294,71 +294,188 @@ QBCore.Functions.CreateCallback('qb-inventory:server:attemptPurchase', function(
     end
 end)
 
-QBCore.Functions.CreateCallback('qb-inventory:server:giveItem', function(source, cb, target, item, amount, slot, info)
-    local player = QBCore.Functions.GetPlayer(source)
-    if not player or player.PlayerData.metadata['isdead'] or player.PlayerData.metadata['inlaststand'] or player.PlayerData.metadata['ishandcuffed'] then
-        cb(false)
-        return
-    end
-    local playerPed = GetPlayerPed(source)
-
-    local Target = QBCore.Functions.GetPlayer(target)
-    if not Target or Target.PlayerData.metadata['isdead'] or Target.PlayerData.metadata['inlaststand'] or Target.PlayerData.metadata['ishandcuffed'] then
-        cb(false)
-        return
-    end
-    local targetPed = GetPlayerPed(target)
-
-    local pCoords = GetEntityCoords(playerPed)
-    local tCoords = GetEntityCoords(targetPed)
-    if #(pCoords - tCoords) > 5 then
-        cb(false)
+QBCore.Functions.CreateCallback('qb-inventory:server:giveItem', function(source, cb, targetPlayerId, itemName, quantity, sourceSlot, itemSpecificInfo)
+    local Giver = QBCore.Functions.GetPlayer(source)
+    if not Giver or Giver.PlayerData.metadata['isdead'] or Giver.PlayerData.metadata['inlaststand'] or Giver.PlayerData.metadata['ishandcuffed'] then
+        cb({ success = false, message = "You cannot give items right now." }) -- Send message back
         return
     end
 
-    local itemInfo = QBCore.Shared.Items[item:lower()]
-    if not itemInfo then
-        cb(false)
+    local Receiver = QBCore.Functions.GetPlayer(targetPlayerId)
+    if not Receiver or Receiver.PlayerData.metadata['isdead'] or Receiver.PlayerData.metadata['inlaststand'] or Receiver.PlayerData.metadata['ishandcuffed'] then
+        QBCore.Functions.Notify(source, Lang:t('notify.pdne') or "Target player not available or in an invalid state.", "error")
+        cb({ success = false, message = "Target player not available." })
         return
     end
 
-    local hasItem = HasItem(source, item)
-    if not hasItem then
-        cb(false)
+    local giverPed = GetPlayerPed(source)
+    local receiverPed = GetPlayerPed(targetPlayerId)
+
+    -- Optional: Distance Check (Consider if still needed with give-by-ID)
+    if DoesEntityExist(giverPed) and DoesEntityExist(receiverPed) then
+        local pCoords = GetEntityCoords(giverPed)
+        local tCoords = GetEntityCoords(receiverPed)
+        if #(pCoords - tCoords) > 10.0 then -- Increased distance or make configurable/removable
+            QBCore.Functions.Notify(source, Lang:t('notify.tftgitem') or "Target is too far away.", "error")
+            cb({ success = false, message = "Target is too far away." })
+            return
+        end
+    else
+        -- This case might occur if one ped doesn't exist, should be caught by GetPlayer checks ideally
+        QBCore.Functions.Notify(source, "Could not verify player locations.", "error")
+        cb({ success = false, message = "Could not verify locations." })
         return
     end
 
-    local itemAmount = GetItemByName(source, item).amount
-    if itemAmount <= 0 then
-        cb(false)
+    itemName = tostring(itemName)
+    quantity = tonumber(quantity)
+    sourceSlot = tonumber(sourceSlot)
+    local sharedItemInfo = QBCore.Shared.Items[itemName:lower()]
+
+    if not sharedItemInfo then
+        QBCore.Functions.Notify(source, Lang:t('notify.itemexist') or "That item definition does not exist.", "error")
+        cb({ success = false, message = "Item definition not found." })
         return
     end
 
-    local giveAmount = tonumber(amount)
-    if giveAmount > itemAmount then
-        cb(false)
+    if quantity <= 0 then
+        QBCore.Functions.Notify(source, Lang:t('notify.gitydhitt') or "Quantity must be positive.", "error") -- Or a more specific message
+        cb({ success = false, message = "Quantity must be positive." })
         return
     end
 
-    local removeItem = RemoveItem(source, item, giveAmount, slot, 'Item given to ID #' .. target)
-    if not removeItem then
-        cb(false)
+    -- 1. Verify Giver has the item and sufficient quantity IN THE SPECIFIED SLOT
+    local itemInGiverSlot = Giver.Functions.GetItemBySlot(sourceSlot)
+    if not itemInGiverSlot or itemInGiverSlot.name:lower() ~= itemName:lower() or itemInGiverSlot.amount < quantity then
+        QBCore.Functions.Notify(source, Lang:t('notify.missitem') or "You don't have that item or enough of it in that slot.", "error")
+        cb({ success = false, message = "Item missing or insufficient amount in slot." })
         return
     end
 
-    local giveItem = AddItem(target, item, giveAmount, false, info, 'Item given from ID #' .. source)
-    if not giveItem then
-        cb(false)
+    -- 2. PRE-CHECK: Can the Receiver actually accept the item?
+    --    The 'itemSpecificInfo' from the giver is used here for AddItem's info field later.
+    --    CanAddItem needs the item name and amount.
+    local canReceiverAddItem, reason = CanAddItem(targetPlayerId, itemName, quantity)
+    if not canReceiverAddItem then
+        local itemLabel = sharedItemInfo.label or itemName
+        local notifyMsgToGiver = "Receiver cannot accept this item."
+        if reason == 'total_weight_limit' then
+            notifyMsgToGiver = "Receiver's inventory is too full (weight)."
+        elseif reason == 'item_specific_weight_limit' then
+            notifyMsgToGiver = string.format("Receiver cannot carry any more %s.", itemLabel)
+        elseif reason == 'slot_limit' then
+            notifyMsgToGiver = "Receiver has no free slots for this item."
+        elseif reason then -- More specific reason from CanAddItem if provided
+            notifyMsgToGiver = "Receiver cannot accept item: " .. reason
+        end
+        QBCore.Functions.Notify(source, notifyMsgToGiver, "error")
+        print(string.format("GiveItem: CanAddItem pre-check failed for receiver %s, item %s. Reason: %s", targetPlayerId, itemName, (reason or "unknown")))
+        cb({ success = false, message = notifyMsgToGiver })
         return
     end
 
-    if itemInfo.type == 'weapon' then checkWeapon(source, item) end
+    -- 3. If pre-check passed, NOW remove from giver
+    local reasonForRemoval = string.format("Given to %s (ID: %s)", Receiver.PlayerData.charinfo.firstname .. " " .. Receiver.PlayerData.charinfo.lastname, targetPlayerId)
+    local removeItemSuccess = Giver.Functions.RemoveItem(itemName, quantity, sourceSlot, reasonForRemoval)
+    if not removeItemSuccess then
+        -- This should be rare if step 1 was accurate, but it's a crucial safeguard.
+        QBCore.Functions.Notify(source, "A critical error occurred while trying to remove the item from your inventory.", "error", 7500)
+        print(string.format("GiveItem: RemoveItem unexpectedly failed for giver %s, item %s from slot %s even after pre-checks.", source, itemName, sourceSlot))
+        cb({ success = false, message = "Failed to remove item from your inventory." })
+        return
+    end
+
+    -- 4. Add item to receiver (this is now much more likely to succeed)
+    --    Pass the 'itemSpecificInfo' from the GIVER's item. Review if this is always desired or if some info needs sanitization/regeneration.
+    local reasonForAddition = string.format("Received from %s (ID: %s)", Giver.PlayerData.charinfo.firstname .. " " .. Giver.PlayerData.charinfo.lastname, source)
+    local addItemSuccess = Receiver.Functions.AddItem(itemName, quantity, false, itemSpecificInfo, reasonForAddition) 
+    
+    if not addItemSuccess then
+        -- This is now a more critical situation, as the item was removed from the giver.
+        QBCore.Functions.Notify(source, "A critical error occurred transferring the item to the receiver AFTER it was removed from you. Attempting to return your item.", "error", 10000)
+        print(string.format("GiveItem: CRITICAL - AddItem to receiver %s failed AFTER pre-check and successful RemoveItem from giver %s. Item: %s. Attempting rollback.", targetPlayerId, source, itemName))
+        
+        -- Attempt to give the item back to the original slot of the giver.
+        if not Giver.Functions.AddItem(itemName, quantity, sourceSlot, itemSpecificInfo, 'GiveItem critical rollback to source ID #' .. source) then
+            print(string.format("GiveItem: ULTRA CRITICAL ROLLBACK FAILED for item %s (qty %s) to giver %s (slot %s)", itemName, quantity, source, sourceSlot))
+            -- Log this very serious issue
+            TriggerEvent('qb-log:server:CreateLog', 'itemloss', 'ULTRA CRITICAL GIVEITEM ROLLBACK FAILED', 'red',
+                string.format('Item: %s x%s, Giver: %s (%s), Receiver: %s (%s) - Rollback Failed during AddItem to giver.', 
+                itemName, quantity, Giver.PlayerData.charinfo.firstname .. " " .. Giver.PlayerData.charinfo.lastname, source, 
+                Receiver.PlayerData.charinfo.firstname .. " " .. Receiver.PlayerData.charinfo.lastname, targetPlayerId)
+            )
+            QBCore.Functions.Notify(source, "CRITICAL ERROR: Failed to restore your item. It may be lost. Please contact an administrator immediately with item details.", "error", 30000)
+        else
+            QBCore.Functions.Notify(source, "Item was returned to your inventory as the receiver could not take it at the last moment.", "warning", 7500)
+        end
+        cb({ success = false, message = "Receiver could not take the item (final attempt)." })
+        return
+    end
+
+    -- If successfully added to receiver:
+    if sharedItemInfo.type == 'weapon' then 
+        -- checkWeapon(source, itemName) -- This function needs to be defined or its logic integrated if still needed
+        -- If checkWeapon was meant to unequip from giver if they were holding it:
+        local giverPlayerObject = QBCore.Functions.GetPlayer(source) -- Re-fetch just in case
+        if giverPlayerObject then
+             TriggerClientEvent('qb-weapons:client:UpdateCurrentWeapon', giverPlayerObject.PlayerData.source, sharedItemInfo, false) -- (Example, might need adjustment for qb-weapons)
+        end
+    end
     TriggerClientEvent('qb-inventory:client:giveAnim', source)
-    TriggerClientEvent('qb-inventory:client:ItemBox', source, itemInfo, 'remove', giveAmount)
-    TriggerClientEvent('qb-inventory:client:giveAnim', target)
-    TriggerClientEvent('qb-inventory:client:ItemBox', target, itemInfo, 'add', giveAmount)
-    if Player(target).state.inv_busy then TriggerClientEvent('qb-inventory:client:updateInventory', target) end
-    cb(true)
+    TriggerClientEvent('qb-inventory:client:ItemBox', source, sharedItemInfo, 'remove', quantity)
+    TriggerClientEvent('qb-inventory:client:giveAnim', targetPlayerId)
+    TriggerClientEvent('qb-inventory:client:ItemBox', targetPlayerId, sharedItemInfo, 'add', quantity)
+    
+    local ReceiverPlayerObject = QBCore.Functions.GetPlayer(targetPlayerId) -- Re-fetch for state check
+    if ReceiverPlayerObject and ReceiverPlayerObject.state.inv_busy then 
+        TriggerClientEvent('qb-inventory:client:updateInventory', targetPlayerId) 
+    end
+    cb({ success = true })
+end)
+
+QBCore.Functions.CreateCallback('qb-inventory:server:RemovePlayerItemCallback', function(source, cb, itemName, quantity, slot, itemInfo)
+    local Player = QBCore.Functions.GetPlayer(source)
+    if not Player then
+        cb({ success = false, message = "Player not found." })
+        return
+    end
+
+    itemName = tostring(itemName)
+    quantity = tonumber(quantity)
+    slot = tonumber(slot)
+
+    if not QBCore.Shared.Items[itemName:lower()] then
+        cb({ success = false, message = "Item does not exist."})
+        return
+    end
+
+    if quantity <= 0 then
+        cb({ success = false, message = "Quantity must be positive."})
+        return
+    end
+
+    -- Use your existing RemoveItem function
+    -- The reason string is optional, but good for logs.
+    local reason = string.format("Player removed via NUI context menu (Item: %s, Qty: %s, Slot: %s)", itemName, quantity, slot)
+    
+    if Player.Functions.RemoveItem(itemName, quantity, slot, reason) then
+        TriggerClientEvent('qb-inventory:client:ItemBox', source, QBCore.Shared.Items[itemName:lower()], 'remove', quantity) -- Notify player
+        if Target and Target.state and Target.state.inv_busy then -- If their inventory was open in NUI
+             TriggerClientEvent('qb-inventory:client:updateInventory', source)
+        end
+        cb({ success = true })
+    else
+        -- RemoveItem function should ideally handle notifying the player if it fails due to insufficient quantity,
+        -- but we can add a generic one here if it doesn't.
+        local itemInSlot = Player.Functions.GetItemBySlot(slot)
+        local failMessage = "Could not remove item."
+        if not itemInSlot or itemInSlot.name ~= itemName then
+            failMessage = "Item not found in that slot."
+        elseif itemInSlot.amount < quantity then
+            failMessage = "Not enough of that item to remove."
+        end
+        cb({ success = false, message = failMessage })
+    end
 end)
 
 -- Item move logic

@@ -75,6 +75,31 @@ const InventoryContainer = Vue.createApp({
                 });
             }
         },
+        showRemoveQuantityPopup(isShowing) { // Watcher for the new remove quantity popup
+            if (isShowing) {
+                this.$nextTick(() => {
+                    if (this.$refs.removeQuantityInput) {
+                        this.$refs.removeQuantityInput.focus();
+                        this.$refs.removeQuantityInput.select();
+                    }
+                });
+            }
+        },
+        quantityToRemove(newVal) { // Watcher for quantityToRemove input
+            if (this.itemToRemove) {
+                if (newVal === null || newVal === '') return; // Allow empty for typing
+                const val = parseInt(newVal, 10);
+                if (isNaN(val) || val < 1) {
+                    this.quantityToRemove = 1;
+                } else if (val > this.itemToRemove.amount) {
+                    this.quantityToRemove = this.itemToRemove.amount;
+                } else {
+                    this.quantityToRemove = val;
+                }
+            } else if (newVal !== null && newVal !== '' && newVal < 1) {
+                this.quantityToRemove = 1;
+            }
+        },
     },
     methods: {
         getInitialState() {
@@ -143,6 +168,11 @@ const InventoryContainer = Vue.createApp({
                 itemToGive: null,
                 giveTargetPlayerId: null,
                 giveQuantity: null, // Default quantity for give popup
+                //
+                showRemoveQuantityPopup: false,
+                showRemoveConfirmPopup: false,
+                itemToRemove: null,
+                quantityToRemove: 1,
             };
         },
         openInventory(data) {
@@ -304,7 +334,6 @@ const InventoryContainer = Vue.createApp({
             }
             this.cancelMoveQuantity(); 
         },
-
         cancelMoveQuantity() {
             this.showQuantityPopup = false;
             this.itemToMove = null;
@@ -588,13 +617,11 @@ const InventoryContainer = Vue.createApp({
                  axios.post(`https://qb-inventory/notify`, { message: 'You can only give items from your personal inventory.', type: 'error' });
             }
         },
-
         setGiveQuantityToMax() {
             if (this.itemToGive && typeof this.itemToGive.amount === 'number') {
                 this.giveQuantity = this.itemToGive.amount;
             }
         },
-
         confirmGiveItem() {
             if (!this.itemToGive) {
                 console.error("No item selected to give.");
@@ -616,12 +643,117 @@ const InventoryContainer = Vue.createApp({
             this.giveItem(this.itemToGive, this.giveQuantity, parseInt(this.giveTargetPlayerId));
             this.cancelGiveItem(); // Close popup after attempting
         },
-
         cancelGiveItem() {
             this.showGiveItemPopup = false;
             this.itemToGive = null;
             this.giveTargetPlayerId = null;
             this.giveQuantity = 1;
+        },
+        promptRemoveItem(item) {
+            if (!item || !this.playerInventory[item.slot] || item.inventory !== 'player') {
+                console.error("Cannot remove: Item not valid or not in player inventory.");
+                axios.post(`https://qb-inventory/notify`, { message: 'Can only remove items from your inventory.', type: 'error' });
+                this.showContextMenu = false;
+                return;
+            }
+
+            this.itemToRemove = item;
+            this.showContextMenu = false;
+
+            if (item.amount > 1) {
+                this.quantityToRemove = 1; // Default to 1 for the input
+                this.showRemoveQuantityPopup = true;
+            } else {
+                this.quantityToRemove = 1; // Removing a single item
+                this.showRemoveConfirmPopup = true; // Directly go to confirmation
+            }
+        },
+
+        setRemoveQuantityToMax() {
+            if (this.itemToRemove && typeof this.itemToRemove.amount === 'number') {
+                this.quantityToRemove = this.itemToRemove.amount;
+            }
+        },
+
+        confirmRemoveQuantityAndProceed() {
+            if (!this.itemToRemove || this.quantityToRemove <= 0 || this.quantityToRemove > this.itemToRemove.amount) {
+                axios.post(`https://qb-inventory/notify`, { message: 'Invalid quantity to remove.', type: 'error' });
+                console.error("Invalid quantity for removal confirmation.");
+                // Optionally close quantity popup and reset, or just let user correct
+                // this.cancelRemovePopups(); 
+                return;
+            }
+            this.showRemoveQuantityPopup = false;
+            this.showRemoveConfirmPopup = true; // Show the final confirmation
+        },
+        executeRemoveItem() {
+            // Ensure itemToRemove and its properties are valid
+            if (!this.itemToRemove || !this.itemToRemove.name || typeof this.itemToRemove.slot === 'undefined' || this.itemToRemove.slot === null) {
+                console.error("ExecuteRemoveItem: Invalid itemToRemove data (name or slot missing).", this.itemToRemove);
+                axios.post(`https://qb-inventory/notify`, { message: 'Error: Item data is invalid for removal.', type: 'error' });
+                this.cancelRemovePopups(); // Close popups
+                return;
+            }
+
+            const quantity = parseInt(this.quantityToRemove, 10); // Ensure quantity is an integer
+
+            if (isNaN(quantity) || quantity <= 0) {
+                console.error("ExecuteRemoveItem: Invalid quantity.", "Original quantityToRemove:", this.quantityToRemove, "Parsed:", quantity);
+                axios.post(`https://qb-inventory/notify`, { message: 'Invalid quantity for removal.', type: 'error' });
+                this.cancelRemovePopups(); // Close popups
+                return;
+            }
+
+            // Log the exact payload you are about to send
+            const payload = {
+                item: { // Lua expects data.item to be an object
+                    name: this.itemToRemove.name,
+                    slot: this.itemToRemove.slot,
+                    info: this.itemToRemove.info, // Send info if your server-side RemoveItem might need it for logging/validation
+                    // Include other relevant item properties if your Lua callback or server logic uses them from data.item
+                    label: this.itemToRemove.label // Good for notifications on server/other clients
+                },
+                quantity: quantity,
+            };
+            console.log("[executeRemoveItem] Payload to be sent:", JSON.stringify(payload, null, 2));
+
+            axios.post("https://qb-inventory/RemovePlayerItem", payload)
+            .then(response => {
+                if (response.data && response.data.success) {
+                    const itemInInv = this.playerInventory[this.itemToRemove.slot]; // Use original slot from itemToRemove
+                    if (itemInInv) {
+                        itemInInv.amount -= quantity; // Use the parsed and validated quantity
+                        if (itemInInv.amount <= 0) {
+                            delete this.playerInventory[this.itemToRemove.slot];
+                        }
+                    }
+                    axios.post(`https://qb-inventory/notify`, { message: `Removed ${quantity}x ${this.itemToRemove.label || this.itemToRemove.name}.`, type: 'success' });
+                } else {
+                    axios.post(`https://qb-inventory/notify`, { message: (response.data && response.data.message) || 'Failed to remove item.', type: 'error' });
+                    console.error("Failed to remove item, server response:", response.data); // This is the log you are seeing
+                }
+            })
+            .catch(error => {
+                console.error("Error calling RemovePlayerItem NUI callback:", error);
+                axios.post(`https://qb-inventory/notify`, { message: 'Error removing item.', type: 'error' });
+            })
+            .finally(() => {
+                console.log("[executeRemoveItem] Calling cancelRemovePopups in .finally()");
+                this.cancelRemovePopups(); 
+            });
+        },
+
+        cancelRemovePopups() {
+            console.log("[cancelRemovePopups] Called. Hiding remove popups."); // Add this log
+            this.showRemoveQuantityPopup = false;
+            this.showRemoveConfirmPopup = false; // <-- This line hides the confirmation popup
+            this.itemToRemove = null;
+            this.quantityToRemove = 1;
+            // If this popup was tied to a drag operation (not in this remove flow, but good practice for generic cancel functions)
+            // if (this.dragDropPendingData) {
+            //     this.clearDragData();
+            //     this.dragDropPendingData = null;
+            // }
         },
         startDrag(event, slot, inventoryType) {
             event.preventDefault();

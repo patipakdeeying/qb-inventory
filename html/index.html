@@ -207,6 +207,10 @@
                     @click="promptMoveQuantity(contextMenuItem)">
                     Move
                 </li>
+                <li v-if="contextMenuItem && playerInventory[contextMenuItem.slot] && contextMenuItem.inventory === 'player'"
+                    @click="promptRemoveItem(contextMenuItem)">
+                    Remove Item
+                </li>
                 <!-- <li @click="splitAndPlaceItem(contextMenuItem, 'player')">Split</li> -->
                 <li v-if="contextMenuItem.name.includes('weapon_')" @click="copySerial(contextMenuItem)">Copy Serial</li>
                 <li v-if="contextMenuItem.name.includes('weapon_')" @click="openWeaponAttachments(contextMenuItem)">Attachments</li>
@@ -255,6 +259,39 @@
                     <div class="popup-buttons">
                         <button @click="confirmMoveQuantity">OK</button>
                         <button @click="cancelMoveQuantity">Cancel</button>
+                    </div>
+                </div>
+            </div>
+            <div class="quantity-popup-overlay" v-if="showRemoveQuantityPopup">
+                <div class="quantity-popup remove-quantity-popup"> <h4>Remove {{ itemToRemove?.label }}</h4>
+                    <div class="quantity-input-wrapper">
+                        <input type="number"
+                               v-model.number="quantityToRemove"
+                               min="1"
+                               :max="itemToRemove?.amount"
+                               ref="removeQuantityInput"
+                               placeholder="Enter quantity"
+                               @keydown.enter="confirmRemoveQuantityAndProceed"
+                               @keydown.esc="cancelRemovePopups" />
+                        <span class="quantity-max-button" @click="setRemoveQuantityToMax">MAX</span>
+                    </div>
+                    <div class="popup-buttons">
+                        <button @click="confirmRemoveQuantityAndProceed">Next</button>
+                        <button @click="cancelRemovePopups">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="confirm-popup-overlay" v-if="showRemoveConfirmPopup">
+                <div class="confirm-popup">
+                    <h4>Confirm Removal</h4>
+                    <p v-if="itemToRemove">Are you sure you want to remove 
+                        <strong>{{ quantityToRemove }}x {{ itemToRemove.label }}</strong>?
+                    </p>
+                    <p class="cannot-be-undone">This action cannot be undone.</p>
+                    <div class="popup-buttons">
+                        <button @click="executeRemoveItem" class="confirm-yes-button">Yes, Remove</button>
+                        <button @click="cancelRemovePopups">No, Cancel</button>
                     </div>
                 </div>
             </div>
